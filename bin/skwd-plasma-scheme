@@ -1,0 +1,58 @@
+#!/usr/bin/bash
+# Apply the colour scheme skwd-wall v2 just rendered to the live Plasma session.
+#
+# GAP: v2 renders ~/.local/share/color-schemes/SkwdMatugen.colors but never
+# applies it — nothing in skwd-walld shells out to plasma-apply-colorscheme.
+#
+# plasma-apply-colorscheme also refuses a scheme whose name is already current
+# ("already set as the theme for the current Plasma session") and has no force
+# option, so re-rendering the same file never repaints. Verified 2026-09-10.
+# Hence the A/B flip: copy the render to whichever of the two names is NOT
+# live, and apply that one.
+set -u
+. "${SKWD_WALL_V2_LIB:-$HOME/.local/lib/skwd-wall-v2/theme-lib.sh}" || exit 0
+
+if ! skwd_wait_for_render; then
+    skwd_log "timed out waiting for $SCHEME_SRC; scheme skipped"
+    exit 0
+fi
+[ -f "$SCHEME_SRC" ] || exit 0
+host command -v plasma-apply-colorscheme >/dev/null 2>&1 || exit 0
+
+# Serialise: a fast wallpaper scroll can overlap two applies.
+LOCK="$SKWD_CACHE/plasma-scheme.lock"
+mkdir -p "$(dirname "$LOCK")"
+exec 9>"$LOCK"
+flock 9
+
+CURRENT="$(host kreadconfig6 --file kdeglobals --group General --key ColorScheme 2>/dev/null)"
+if [ "$CURRENT" = "SkwdWallA" ]; then TARGET="SkwdWallB"; else TARGET="SkwdWallA"; fi
+
+cp "$SCHEME_SRC" "$SCHEME_DIR/$TARGET.colors" || exit 0
+sed -i "s/^Name=.*/Name=$TARGET/;s/^ColorScheme=.*/ColorScheme=$TARGET/" "$SCHEME_DIR/$TARGET.colors"
+
+# Staged first and deliberately WITHOUT --notify: each --notify is a KConfig
+# ConfigChanged broadcast every Plasma process repaints on. Written before the
+# scheme apply, they are already on disk when its single signal fires, so one
+# repaint picks all of them up. plasma-apply-colorscheme merges key-by-key and
+# does not clobber them.
+
+# Plasma's own wallpaper-derived accent would override the scheme's selection
+# colour with a different sample from the same image. Let the scheme win.
+host kwriteconfig6 --file kdeglobals --group General --key accentColorFromWallpaper --type bool false
+ACCENT="$(skwd_scheme_rgb "$SCHEME_DIR/$TARGET.colors" "Colors:Selection" BackgroundNormal)"
+if [ -n "$ACCENT" ]; then
+    host kwriteconfig6 --file kdeglobals --group General --key AccentColor "$ACCENT"
+    host kwriteconfig6 --file kdeglobals --group General --key LastUsedCustomAccentColor "$ACCENT"
+fi
+
+# plasma-apply-colorscheme copies the WM titlebar keys but drops frame /
+# inactiveFrame; kdeglobals still needs them for the Qt KWinPalette fallback.
+for k in frame inactiveFrame; do
+    v="$(skwd_scheme_rgb "$SCHEME_DIR/$TARGET.colors" WM "$k")"
+    [ -n "$v" ] && host kwriteconfig6 --file kdeglobals --group WM --key "$k" "$v"
+done
+
+# The only notifying call in the script: one repaint.
+skwd_log "scheme -> $TARGET window=$(skwd_scheme_rgb "$SCHEME_DIR/$TARGET.colors" "Colors:Window" BackgroundNormal)"
+host plasma-apply-colorscheme "$TARGET" >/dev/null

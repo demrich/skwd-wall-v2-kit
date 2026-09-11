@@ -1,0 +1,78 @@
+#!/usr/bin/bash
+# Plasma-drawn surfaces + the compositor window ring.
+#
+# Two things kdeglobals does not reach, and skwd-wall v2 has no concept of:
+#
+#   1. Notifications, KRunner and applet popups take their chrome from the
+#      Plasma *desktop theme*, not from the colour scheme. A theme that ships
+#      its own colours (Vapor, Breeze Dark, most store themes) will fight every
+#      palette v2 generates. SkwdVapor is Vapor with the colors file removed,
+#      so those surfaces fall through to the active scheme.
+#   2. kwin4_effect_shapecorners draws the all-window outline from its own
+#      kwinrc keys.
+#
+# Both are optional. Missing theme or missing effect exits 0 quietly, which is
+# what makes this safe to ship to a host that has neither.
+set -u
+. "${SKWD_WALL_V2_LIB:-$HOME/.local/lib/skwd-wall-v2/theme-lib.sh}" || exit 0
+
+DESKTOP_THEME="${SKWD_DESKTOP_THEME:-SkwdVapor}"
+
+# ---------------------------------------------------------- 1. desktop theme
+# Static choice, not per-wallpaper: assert it only when it has drifted (a Global
+# Theme or a Plasma upgrade can reset it). Re-applying unconditionally would
+# cost a ConfigChanged broadcast on every single wallpaper change for no gain.
+if [ -d "${XDG_DATA_HOME:-$HOME/.local/share}/plasma/desktoptheme/$DESKTOP_THEME" ]; then
+    CUR_THEME="$(host kreadconfig6 --file plasmarc --group Theme --key name 2>/dev/null)"
+    if [ "$CUR_THEME" != "$DESKTOP_THEME" ]; then
+        host plasma-apply-desktoptheme "$DESKTOP_THEME" >/dev/null 2>&1 || \
+            host kwriteconfig6 --notify --file plasmarc --group Theme --key name "$DESKTOP_THEME"
+    fi
+fi
+
+# ------------------------------------------------------ 2. shapecorners ring
+if ! host kreadconfig6 --file kwinrc --group Plugins \
+        --key kwin4_effect_shapecornersEnabled 2>/dev/null | grep -qi true; then
+    skwd_log "shapecorners effect disabled; ring skipped"
+    exit 0
+fi
+
+if ! skwd_wait_for_render; then
+    skwd_log "timed out waiting for $SCHEME_SRC; ring skipped"
+    exit 0
+fi
+[ -f "$SCHEME_SRC" ] || exit 0
+
+FRAME="$(skwd_scheme_rgb "$SCHEME_SRC" WM frame)"
+INACTIVE="$(skwd_scheme_rgb "$SCHEME_SRC" WM inactiveFrame)"
+if [ -z "$FRAME" ]; then
+    # The stock v2 kde-colors.colors template ships no WM/frame key. Without it
+    # there is nothing to paint the ring with.
+    skwd_log "no WM/frame in $SCHEME_SRC; ring skipped"
+    exit 0
+fi
+skwd_log "ring frame=$FRAME inactiveFrame=${INACTIVE:-none}"
+
+# Thickness, radius and exclusions live in kwinrc and are the user's business;
+# only the four colour pairs are rewritten here.
+#
+# No --notify on any of these: the flag broadcasts a ConfigChanged that every
+# Plasma process wakes and repaints for, and it does not apply these keys
+# anyway. Measured 2026-09-09: 13 broadcasts per apply with it, 5 without, and
+# the ring updated either way. Eight redundant broadcasts in a row were a
+# visible ripple through the panel and notification area.
+for k in OutlineColor OutlineColor2 OuterOutlineColor OuterOutlineColor2; do
+    host kwriteconfig6 --file kwinrc --group Round-Corners --key "$k" "$FRAME"
+done
+if [ -n "$INACTIVE" ]; then
+    for k in InactiveOutlineColor InactiveOutlineColor2 \
+             InactiveOuterOutlineColor InactiveOuterOutlineColor2; do
+        host kwriteconfig6 --file kwinrc --group Round-Corners --key "$k" "$INACTIVE"
+    done
+fi
+
+# This, not --notify, is what applies them. It is the same call the KCM makes
+# after Save; without it the ring keeps the previous palette until something
+# else reconfigures KWin.
+host qdbus-qt6 org.kde.KWin /Effects \
+    org.kde.kwin.Effects.reconfigureEffect kwin4_effect_shapecorners >/dev/null 2>&1 || true

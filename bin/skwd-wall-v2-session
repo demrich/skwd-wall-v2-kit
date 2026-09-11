@@ -1,0 +1,81 @@
+#!/usr/bin/bash
+# Start skwd-walld for the graphical session and restore the theme.
+#
+# Two skwd-wall v2 (1.0.0-beta.11) gaps this works around, both verified
+# 2026-09-10 and both candidates for an upstream fix:
+#
+#  1. walld's startup restore re-applies the wallpaper but runs no theme
+#     steps at all (no "theme apply", no integrations, no post-processing),
+#     so a fresh login comes up with the previous session's colours. This is
+#     the same defect v1 had, which rice-theme-login.service existed to fix.
+#  2. "skwd-helm retheme" answers "no current wallpaper to retheme" after a
+#     restore -- the restore path never populates the in-memory current
+#     wallpaper that retheme reads. So the kick has to be an explicit apply
+#     of the path that "skwd-helm current" reports.
+#
+# Stop must be fast. skwd-daemon (v1) held plasma-workspace teardown open for
+# ~13 s on stop and that race window is the documented cause of this host's
+# logout/login freeze. Kill walld directly rather than tearing down the
+# Distrobox, and let the unit cap it at TimeoutStopSec.
+set -u
+
+BOX="${SKWD_WALL_V2_BOX:-skwd-wall-v2-fedora}"
+box() { /usr/bin/distrobox enter -n "$BOX" -- "$@"; }
+
+case "${1:-start}" in
+stop)
+    pkill -f '^/usr/bin/skwd-walld' 2>/dev/null
+    exit 0
+    ;;
+start) ;;
+*) echo "usage: $0 [start|stop]" >&2; exit 2 ;;
+esac
+
+# Plasma must own the desktop before the wallpaper plugin will accept an apply.
+for _ in $(seq 1 60); do
+    qdbus-qt6 org.kde.plasmashell >/dev/null 2>&1 && break
+    sleep 1
+done
+
+# Always clear a stale daemon before starting, rather than reusing whatever is
+# already up. walld runs in the container's cgroup, so when ExecStart fails
+# systemd kills the host-side podman wrapper and the daemon itself survives --
+# and it is still holding the config it was started with. Reusing it silently
+# ignores every later edit to config.json, which looks exactly like the config
+# not working. Restarting the unit is how config changes are meant to land.
+pkill -f '^/usr/bin/skwd-walld' 2>/dev/null && sleep 1
+box /usr/bin/skwd-walld &
+
+# Wait for the socket, then for the restore to publish a current wallpaper.
+for _ in $(seq 1 60); do
+    box /usr/bin/skwd-helm current >/dev/null 2>&1 && break
+    sleep 1
+done
+
+CUR=""
+for _ in $(seq 1 30); do
+    CUR="$(box /usr/bin/skwd-helm current --json 2>/dev/null \
+        | python3 -c 'import sys,json
+try:
+    o=json.load(sys.stdin)["outputs"]
+    print(next((x["current"] for x in o if x.get("current")), ""))
+except Exception:
+    print("")' )"
+    [ -n "$CUR" ] && break
+    sleep 1
+done
+
+[ -n "$CUR" ] || { echo "no wallpaper to restore" >&2; exit 0; }
+
+# Gap 2: apply, not retheme. This is what runs integrations + post-processing.
+#
+# One retry: the Plasma wallpaper plugin can answer SIGPIPE if the containment
+# is still settling this early in the session. A login unit that goes "failed"
+# over a transient here is worse than a warning -- the theme is re-applied on
+# the next wallpaper change anyway.
+if ! box /usr/bin/skwd-helm apply "$CUR"; then
+    sleep 3
+    box /usr/bin/skwd-helm apply "$CUR" || \
+        echo "skwd-wall-v2-session: restore apply failed for $CUR" >&2
+fi
+exit 0

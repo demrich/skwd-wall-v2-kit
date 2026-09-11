@@ -1,0 +1,419 @@
+#!/usr/bin/env bash
+# Theme control for skwd-wall v2.
+#
+#   skwd-theme list [walls|all]     what can be applied
+#   skwd-theme current              what is applied now, and whether it took
+#   skwd-theme apply <name> [-p]    snapshot (if possible), then apply via skwd-helm
+#   skwd-theme validate [file...]   check .colors files before they go live
+#   skwd-theme save-good [note]     mark the current look as known-good
+#   skwd-theme recover              go back to the known-good look
+#
+# apply/save-good/recover snapshot state via `rice-backup`/`rice-restore` when
+# those tools happen to be on PATH (they are a separate, optional project);
+# without them apply still works, it just can't be undone automatically.
+#
+# apply and current talk to skwd-wall v2 (skwd-helm inside Distrobox
+# $SKWD_WALL_V2_BOX, default skwd-wall-v2-fedora). Do not call host matugen.
+set -euo pipefail
+
+CONF="$HOME/.config/skwd-wall-v2/config.json"
+BOX="${SKWD_WALL_V2_BOX:-skwd-wall-v2-fedora}"
+SCHEMEDIR="$HOME/.local/share/color-schemes"
+SCHEME_SRC="$SCHEMEDIR/SkwdMatugen.colors"
+HOOK_MARK="${XDG_CACHE_HOME:-$HOME/.cache}/skwd-wall-v2/skwd-plasma-scheme.last-render"
+STATE="$HOME/.local/state/skwd-theme"
+GOOD="$STATE/known-good"
+WALLDIR="$HOME/Pictures/Wallpapers"
+CONTRAST="$HOME/.local/lib/skwd-wall-v2/check-contrast.py"
+
+die() { echo "skwd-theme: $*" >&2; exit 1; }
+
+helm() {
+    /usr/bin/distrobox enter -n "$BOX" -- skwd-helm "$@"
+}
+
+mtime_of() { stat -c %.Y "$1" 2>/dev/null || echo 0; }
+
+snapshot() {
+    local label="$1"
+    if command -v rice-backup >/dev/null 2>&1; then
+        rice-backup --scope theme --label "$label" >/dev/null
+        echo "snapshot taken (rice-restore latest undoes this)"
+    else
+        echo "note: rice-backup not on PATH — no undo snapshot taken"
+    fi
+}
+
+# --------------------------------------------------------------- introspection
+
+current_path() {
+    local p
+    p="$(helm current --json 2>/dev/null | jq -r '[.outputs[]? | .path // .current // empty] | map(select(length > 0)) | .[0] // empty')"
+    [ -n "$p" ] || return 1
+    printf '%s\n' "$p"
+}
+
+wallpaper_key() {
+    local base="${1##*/}"
+    printf 'static:%s\n' "$base"
+}
+
+profile_name() {
+    local path="$1" key name
+    [ -f "$CONF" ] || return 0
+    key="$(wallpaper_key "$path")"
+    name="$(jq -r --arg k "$key" --arg n "${path##*/}" '
+        .theme.wallpaperProfiles[]?
+        | select(.enabled == true and (.key == $k or .name == $n))
+        | .name
+    ' "$CONF" 2>/dev/null | head -1)"
+    [ -n "$name" ] && printf '%s\n' "$name"
+}
+
+outputs() {
+    jq -r '.integrations[]?.output // empty' "$CONF" 2>/dev/null | while IFS= read -r o; do
+        case "$o" in
+            "~/"*) echo "$HOME/${o#\~/}" ;;
+            /*)    echo "$o" ;;
+        esac
+    done
+}
+
+# --------------------------------------------------------------------- list
+
+cmd_list() {
+    local what="${1:-walls}" cur listing name fav
+    cur="$(current_path 2>/dev/null || true)"
+    listing="$(helm list --json)" || die "skwd-helm list failed — is skwd-wall-v2.service running?"
+
+    echo "wallpapers (apply by name, path, or key):"
+    local mark
+    while IFS=$'\t' read -r name fav key; do
+        mark="  "
+        [ "$fav" = "1" ] && mark="F "
+        if [ -n "$cur" ] && [ "$name" = "${cur##*/}" ]; then
+            printf '  * %s%-40s %s   <- current\n' "$mark" "$name" "$key"
+        else
+            printf '    %s%-40s %s\n' "$mark" "$name" "$key"
+        fi
+    done < <(jq -r '.wallpapers[]? | [.name, (.favourite|tostring), .key] | @tsv' <<<"$listing")
+
+    if [ "$what" = all ]; then
+        echo
+        jq -r '"policy:  \(.theme.policy // "?")   mode: \(.theme.mode // "?")   engine: \(.theme.engine // "?")"' "$CONF" 2>/dev/null || true
+        local nprof
+        nprof="$(jq -r '[.theme.wallpaperProfiles[]? | select(.enabled == true)] | length' "$CONF" 2>/dev/null || echo 0)"
+        echo "enabled wallpaper profiles: $nprof"
+    fi
+}
+
+# ------------------------------------------------------------------ current
+
+cmd_current() {
+    local cur t scheme policy mode wr wg wb
+    if ! cur="$(current_path)"; then
+        echo "no current wallpaper (skwd-helm current failed — is skwd-wall-v2.service running?)"
+        cur=""
+    else
+        t="$(profile_name "$cur" || true)"
+        echo "wallpaper:    ${cur##*/}"
+        echo "key:          $(wallpaper_key "$cur")"
+        if [ -n "$t" ]; then
+            echo "profile:      $t (enabled wallpaper profile)"
+        else
+            echo "profile:      (none — wallpaper-derived palette)"
+        fi
+        if [ -f "$SCHEME_SRC" ]; then
+            echo "rendered:     $(date -d @"$(stat -c%Y "$SCHEME_SRC")" '+%Y-%m-%d %H:%M:%S')"
+        fi
+    fi
+
+    if [ -f "$CONF" ]; then
+        policy="$(jq -r '.theme.policy // empty' "$CONF")"
+        mode="$(jq -r '.theme.mode // empty' "$CONF")"
+        echo "policy:       ${policy:-(unset)}"
+        echo "config mode:  ${mode:-(unset)}"
+    fi
+
+    scheme="$(kreadconfig6 --file kdeglobals --group General --key ColorScheme 2>/dev/null || true)"
+    echo "plasma scheme: ${scheme:-(unset)}"
+
+    if [ -n "${mode:-}" ] && [ "$mode" != "auto" ]; then
+        local live_rgb lum live_mode
+        live_rgb="$(kreadconfig6 --file kdeglobals --group 'Colors:Window' \
+                    --key BackgroundNormal 2>/dev/null || true)"
+        if [ -n "$live_rgb" ]; then
+            IFS=',' read -r wr wg wb <<EOF
+$live_rgb
+EOF
+            lum=$(( (2126 * wr + 7152 * wg + 722 * wb) / 10000 ))
+            [ "$lum" -gt 150 ] && live_mode="light" || live_mode="dark"
+            if [ "$live_mode" = "$mode" ]; then
+                echo "mode:          $mode (live Window fill $live_rgb agrees)"
+            else
+                echo "mode:          MISMATCH — config declares $mode, live Window fill is $live_rgb ($live_mode)"
+                [ -n "$cur" ] && echo "               re-run:  skwd-theme apply ${cur##*/}"
+            fi
+        fi
+    fi
+
+    [ -f "$SCHEME_SRC" ] || return 0
+    local applied stale=0 missing=0 total=0 o age
+    applied="$(stat -c%Y "$SCHEME_SRC")"
+    echo
+    echo "integration outputs:"
+    while IFS= read -r o; do
+        total=$((total + 1))
+        if [ ! -e "$o" ]; then
+            printf '  MISSING  %s\n' "${o/#$HOME/\~}"; missing=$((missing + 1)); continue
+        fi
+        age=$(( applied - $(stat -c%Y "$o") ))
+        if [ "$age" -gt 60 ]; then
+            printf '  STALE    %s  (%dm older than the render)\n' "${o/#$HOME/\~}" "$((age / 60))"
+            stale=$((stale + 1))
+        else
+            printf '  ok       %s\n' "${o/#$HOME/\~}"
+        fi
+    done < <(outputs)
+
+    echo
+    if [ "$total" -eq 0 ]; then
+        echo "no integrations declared in ${CONF/#$HOME/\~}"
+    elif [ "$stale" -eq 0 ] && [ "$missing" -eq 0 ]; then
+        echo "all $total declared applications are current"
+    else
+        echo "$stale stale, $missing missing, of $total declared applications"
+        [ -n "$cur" ] && echo "re-run:  skwd-theme apply ${cur##*/}"
+    fi
+}
+
+# -------------------------------------------------------------------- apply
+
+resolve() {
+    local want="$1" listing hits n
+    if [ -f "$want" ]; then readlink -f -- "$want"; return; fi
+    if [ -f "$WALLDIR/$want" ]; then echo "$WALLDIR/$want"; return; fi
+
+    listing="$(helm list --json)" || die "skwd-helm list failed — is skwd-wall-v2.service running?"
+
+    local q
+    q="$(printf '%s' "$want" | tr '[:upper:]' '[:lower:]')"
+
+    hits="$(jq -r --arg q "$q" --arg raw "$want" '
+        .wallpapers[]?
+        | select(
+            .key == $raw
+            or .name == $raw
+            or ((.name | ascii_downcase) | contains($q))
+            or ((.key | ascii_downcase) | contains($q))
+          )
+        | .name
+    ' <<<"$listing")"
+
+    n="$(printf '%s\n' "$hits" | grep -c . || true)"
+    if [ "$n" -eq 0 ]; then
+        die "no wallpaper matching '$want'  (try: skwd-theme list)"
+    fi
+
+    local picked=""
+    if [ "$n" -eq 1 ]; then
+        picked="$hits"
+    elif [ "${pick:-0}" -eq 1 ] && command -v fzf >/dev/null 2>&1 && [ -t 0 ]; then
+        picked="$(printf '%s\n' "$hits" | fzf --reverse --prompt="$want> " --pointer='▌' --no-mouse)" || true
+        [ -z "$picked" ] && return 0
+    else
+        echo "'$want' matches $n wallpapers:" >&2
+        printf '%s\n' "$hits" | sed 's|^|  |' >&2
+        die "be more specific, or add -p to pick"
+    fi
+
+    if [ -f "$WALLDIR/$picked" ]; then
+        echo "$WALLDIR/$picked"
+    else
+        echo "static:$picked"
+    fi
+}
+
+cmd_apply() {
+    local want="${1:-}" target
+    [ -z "$want" ] && die "apply needs a wallpaper name, path, or key"
+    target="$(resolve "$want")"
+    [ -z "$target" ] && { echo "cancelled"; exit 0; }
+
+    echo "applying: ${target##*/}"
+    local t
+    t="$(profile_name "$target" 2>/dev/null || true)"
+    [ -n "$t" ] && echo "profile:  $t (enabled wallpaper profile)"
+
+    if [ "${dry:-0}" -eq 1 ]; then
+        echo
+        echo "DRY RUN — would run:"
+        printf '  distrobox enter -n %s -- skwd-helm apply %s\n' "$BOX" "$target"
+        return
+    fi
+
+    snapshot "before skwd-theme apply ${target##*/}"
+    echo
+
+    local before_s before_h
+    before_s="$(mtime_of "$SCHEME_SRC")"
+    before_h="$(mtime_of "$HOOK_MARK")"
+
+    if ! helm apply "$target"; then
+        die "skwd-helm apply failed — nothing changed on disk beyond any snapshot"
+    fi
+
+    local waited=0 after_s after_h
+    while [ "$waited" -lt 100 ]; do
+        after_s="$(mtime_of "$SCHEME_SRC")"
+        after_h="$(mtime_of "$HOOK_MARK")"
+        if [ "$after_s" != "$before_s" ] && [ "$after_h" != "$before_h" ]; then
+            break
+        fi
+        sleep 0.1
+        waited=$((waited + 1))
+    done
+    echo
+    cmd_current
+}
+
+# ----------------------------------------------------------------- validate
+
+REQUIRED_GROUPS="Colors:Window Colors:View Colors:Button Colors:Selection Colors:Tooltip General WM"
+
+validate_one() {
+    local f="$1" problems=0 g
+    if [ ! -f "$f" ]; then echo "  MISSING  $f"; return 1; fi
+
+    for g in $REQUIRED_GROUPS; do
+        grep -qF "[$g]" "$f" || { echo "  missing group [$g]"; problems=$((problems + 1)); }
+    done
+
+    local line group="" key val bad
+    while IFS= read -r line; do
+        case "$line" in
+            \[*\]) group="${line#[}"; group="${group%]}"; continue ;;
+            *=*) ;;
+            *) continue ;;
+        esac
+        case "$group" in Colors:*) ;; *) continue ;; esac
+        key="${line%%=*}"; val="${line#*=}"
+        case "$key" in Background*|Foreground*|Decoration*) ;; *) continue ;; esac
+        bad=0
+        if ! printf '%s' "$val" | grep -qE '^[0-9]{1,3},[0-9]{1,3},[0-9]{1,3}$'; then
+            bad=1
+        else
+            local IFS=','; local c
+            for c in $val; do [ "$c" -gt 255 ] && bad=1; done
+        fi
+        if [ "$bad" -eq 1 ]; then
+            echo "  bad value  [$group] $key=$val"
+            problems=$((problems + 1))
+        fi
+    done < "$f"
+
+    if [ "$problems" -eq 0 ]; then
+        echo "  ok       ${f##*/}"
+        return 0
+    fi
+    echo "  FAILED   ${f##*/} — $problems problem(s)"
+    return 1
+}
+
+cmd_validate() {
+    local files=("$@") rc=0 f
+    if [ "${#files[@]}" -eq 0 ]; then
+        files=("$SCHEME_SRC")
+        echo "validating the live generated scheme:"
+    elif [ "${files[0]}" = "--all" ]; then
+        mapfile -t files < <(find "$SCHEMEDIR" -name '*.colors' | sort)
+        echo "validating all ${#files[@]} schemes in ${SCHEMEDIR/#$HOME/\~}:"
+    else
+        echo "validating:"
+    fi
+    for f in "${files[@]}"; do validate_one "$f" || rc=1; done
+
+    if [ -x "$CONTRAST" ]; then
+        echo
+        echo "contrast:"
+        "$CONTRAST" "${files[@]}" || rc=1
+    fi
+
+    echo
+    [ "$rc" -eq 0 ] && echo "all valid" || echo "problems found — do not activate these"
+    return "$rc"
+}
+
+# ------------------------------------------------------- known-good recovery
+
+cmd_save_good() {
+    local note="${*:-}" cur id
+    cur="$(current_path || true)"
+    [ -z "$note" ] && note="${cur##*/}"
+
+    cmd_validate >/dev/null 2>&1 || die "current schemes do not validate — refusing to mark a broken look as known-good"
+
+    command -v rice-backup >/dev/null 2>&1 || die "save-good/recover need rice-backup+rice-restore on PATH (a separate, optional project)"
+
+    id="$(rice-backup --scope theme --label "known-good: $note" | sed -n 's/^snapshot: //p')"
+    [ -z "$id" ] && die "rice-backup did not report a snapshot id"
+
+    mkdir -p "$STATE"
+    printf 'id=%s\nnote=%s\nwallpaper=%s\nsaved=%s\n' \
+        "$id" "$note" "$cur" "$(date '+%Y-%m-%d %H:%M:%S')" > "$GOOD"
+
+    echo "known-good saved: $note"
+    echo "  snapshot $id"
+    echo "  restore with: skwd-theme recover"
+}
+
+cmd_recover() {
+    [ -f "$GOOD" ] || die "no known-good saved yet — run 'skwd-theme save-good' while things look right"
+    command -v rice-restore >/dev/null 2>&1 || die "recover needs rice-restore on PATH (a separate, optional project)"
+    local id note saved
+    id="$(sed -n 's/^id=//p' "$GOOD")"
+    note="$(sed -n 's/^note=//p' "$GOOD")"
+    saved="$(sed -n 's/^saved=//p' "$GOOD")"
+    echo "recovering: $note   (saved $saved, snapshot $id)"
+    echo
+    if [ "${dry:-0}" -eq 1 ]; then
+        rice-restore "$id" --dry-run
+        return
+    fi
+    rice-restore "$id"
+
+    local saved_wall now_wall
+    saved_wall="$(sed -n 's/^wallpaper=//p' "$GOOD")"
+    now_wall="$(current_path || true)"
+    if [ -n "$saved_wall" ] && [ "$saved_wall" != "$now_wall" ]; then
+        echo
+        echo "note: colours are back, but the wallpaper is still"
+        echo "      ${now_wall##*/}"
+        echo "      the known-good one was ${saved_wall##*/}"
+        echo "      restore it too with:  skwd-theme apply ${saved_wall##*/}"
+    fi
+}
+
+# ---------------------------------------------------------------------- main
+
+cmd="${1:-}"; shift || true
+args=()
+dry=0; pick=0
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        -n|--dry-run) dry=1; shift ;;
+        -p|--pick)    pick=1; shift ;;
+        *) args+=("$1"); shift ;;
+    esac
+done
+
+case "$cmd" in
+    list)      cmd_list "${args[0]:-walls}" ;;
+    current)   cmd_current ;;
+    apply)     cmd_apply "${args[@]:-}" ;;
+    validate)  cmd_validate "${args[@]+"${args[@]}"}" ;;
+    save-good) cmd_save_good "${args[@]:-}" ;;
+    recover)   cmd_recover ;;
+    -h|--help|"") sed -n '2,16p' "$0" | sed 's/^# \?//' ;;
+    *) die "unknown command: $cmd  (try --help)" ;;
+esac

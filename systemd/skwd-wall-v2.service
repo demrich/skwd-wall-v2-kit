@@ -1,0 +1,17 @@
+[Unit]
+Description=skwd-wall v2 wallpaper daemon and theme restore
+After=graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=%h/.local/bin/skwd-wall-v2-session start
+ExecStop=%h/.local/bin/skwd-wall-v2-session stop
+# Bounded teardown: v1's 15s stop timeout is the documented logout-freeze race.
+TimeoutStopSec=5s
+KillMode=mixed
+Slice=session.slice
+
+[Install]
+WantedBy=graphical-session.target

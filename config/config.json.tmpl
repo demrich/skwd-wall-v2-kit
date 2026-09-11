@@ -1,0 +1,86 @@
+{
+  "components": {
+    "wallpaperSelector": {
+      "displayMode": "slices",
+      "enabled": true
+    }
+  },
+  "integrations": [
+    {
+      "name": "kde",
+      "output": "~/.local/share/color-schemes/SkwdMatugen.colors",
+      "template": "kde-colors.colors"
+    },
+    {
+      "name": "qt6ct",
+      "output": "~/.config/qt6ct/colors/matugen.conf",
+      "template": "qt6ct-colors.conf"
+    },
+    {
+      "name": "ghostty",
+      "output": "~/.config/ghostty/skwd-theme",
+      "template": "ghostty.conf"
+    },
+    {
+      "name": "btop",
+      "output": "~/.config/btop/themes/skwd.theme",
+      "template": "btop.theme"
+    },
+    {
+      "name": "yazi",
+      "output": "~/.config/yazi/theme.toml",
+      "template": "yazi-theme.toml"
+    },
+    {
+      "name": "vesktop",
+      "output": "~/.config/vesktop/themes/skwd-midnight.theme.css",
+      "template": "vesktop.css"
+    },
+    {
+      "name": "spicetify",
+      "output": "~/.config/spicetify/Themes/Matugen/color.ini",
+      "template": "spicetify.ini"
+    },
+    {
+      "name": "spicetify-css",
+      "output": "~/.config/spicetify/Themes/Matugen/user.css",
+      "template": "spicetify.css"
+    }
+  ],
+  "matugen": {
+    "mode": "auto"
+  },
+  "paths": {
+    "paperBin": "__HOME__/.local/bin/skwd-paper-v2",
+    "paperStillBin": "__HOME__/.local/libexec/skwd-wall-still",
+    "paperVkBin": "__HOME__/.local/libexec/skwd-wall-vk"
+  },
+  "performance": {
+    "batterySaver": false
+  },
+  "plasma": {
+    "lockScreen": {
+      "dynamic": "poster",
+      "mode": "follow"
+    }
+  },
+  "postProcessing": [
+    {
+      "command": "~/.local/bin/skwd-plasma-scheme",
+      "type": "all"
+    },
+    {
+      "command": "~/.local/bin/skwd-plasma-surfaces",
+      "type": "all"
+    }
+  ],
+  "theme": {
+    "authority": "skwd",
+    "engine": "skwd-pywal",
+    "mode": "dark",
+    "policy": "wallpaper",
+    "scheme": "expressive",
+    "style": "muted",
+    "wallpaperProfiles": []
+  }
+}
