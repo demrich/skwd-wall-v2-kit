@@ -5,7 +5,8 @@
 #   ./install.sh --yes        don't prompt (skip optional browser integration)
 #   ./install.sh --box NAME   use a Distrobox name other than skwd-wall-v2-fedora
 #
-# Safe to re-run: every step checks what's already there before writing.
+# Re-running after a partial or failed install won't duplicate anything or
+# clobber existing config; each step checks first.
 set -euo pipefail
 
 KIT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -16,7 +17,7 @@ while [ "$#" -gt 0 ]; do
     case "$1" in
         --yes|-y) ASSUME_YES=1; shift ;;
         --box) BOX="$2"; shift 2 ;;
-        -h|--help) sed -n '2,8p' "$0" | sed 's/^# \?//'; exit 0 ;;
+        -h|--help) sed -n '2,9p' "$0" | sed 's/^# \?//'; exit 0 ;;
         *) echo "install.sh: unknown option $1" >&2; exit 2 ;;
     esac
 done
@@ -32,12 +33,10 @@ ask() {
     [[ "$ans" == [yY]* ]]
 }
 
-# ---------------------------------------------------------------- preflight
-
 info "Checking prerequisites"
-command -v distrobox >/dev/null 2>&1 || die "distrobox not found — install it first (it's how skwd-wall v2 runs on an immutable host)"
-command -v systemctl >/dev/null 2>&1 || die "systemctl not found — this kit needs systemd --user units"
-command -v jq >/dev/null 2>&1 || die "jq not found — install it (dnf install jq, or via a distrobox/flatpak-exported copy on PATH)"
+command -v distrobox >/dev/null 2>&1 || die "distrobox not found - install it first (it's how skwd-wall v2 runs on an immutable host)"
+command -v systemctl >/dev/null 2>&1 || die "systemctl not found - this kit needs systemd --user units"
+command -v jq >/dev/null 2>&1 || die "jq not found - install it (dnf install jq, or via a distrobox/flatpak-exported copy on PATH)"
 
 if [ "${XDG_SESSION_DESKTOP:-}" != "KDE" ] && [ "${DESKTOP_SESSION:-}" != "plasma" ] && [ -z "${KDE_FULL_SESSION:-}" ]; then
     warn "This doesn't look like a KDE Plasma session (XDG_SESSION_DESKTOP=${XDG_SESSION_DESKTOP:-unset})."
@@ -52,8 +51,6 @@ fi
 if systemctl --user is-enabled skwd-daemon.service >/dev/null 2>&1; then
     die "legacy skwd-daemon.service is enabled. Two units racing to restore the theme on login is a known cause of logout freezes. Run: systemctl --user disable --now skwd-daemon.service, then re-run this installer."
 fi
-
-# ------------------------------------------------------------- the container
 
 # Package versions pinned here on purpose: skwd-wall-v2-session's login
 # workaround targets specific beta.11 daemon-restore bugs (see
@@ -81,19 +78,19 @@ else
     trap 'rm -f "$ASSEMBLE_FILE"' EXIT
     sed "s/__BOX__/$BOX/" "$KIT/distrobox-assemble.ini" > "$ASSEMBLE_FILE"
     distrobox assemble create --file "$ASSEMBLE_FILE" \
-        || die "distrobox assemble create failed — see output above"
+        || die "distrobox assemble create failed - see output above"
 fi
 
 info "Enabling the Copr repo and installing pinned packages"
 distrobox enter -n "$BOX" -- sudo dnf -y copr enable piixini/skwd-wall-v2 >/dev/null \
-    || die "copr enable failed inside '$BOX' — is dnf5-plugins present? (see distrobox-assemble.ini)"
+    || die "copr enable failed inside '$BOX' - is dnf5-plugins present? (see distrobox-assemble.ini)"
 distrobox enter -n "$BOX" -- sudo dnf -y install "${SKWD_NVRS[@]}" >/dev/null \
-    || die "package install inside '$BOX' failed — the pinned NVRs in install.sh may no longer be in the Copr repo; check https://copr.fedorainfracloud.org/coprs/piixini/skwd-wall-v2/ for current versions"
+    || die "package install inside '$BOX' failed - the pinned NVRs in install.sh may no longer be in the Copr repo; check https://copr.fedorainfracloud.org/coprs/piixini/skwd-wall-v2/ for current versions"
 
 distrobox enter -n "$BOX" -- command -v skwd-helm >/dev/null 2>&1 \
-    || die "skwd-helm not found inside '$BOX' after install — something upstream changed"
+    || die "skwd-helm not found inside '$BOX' after install - something upstream changed"
 
-# --------------------------------------------- host-side renderer binaries
+# host-side renderer binaries
 # skwd-walld runs in the container, but wallpaper rendering needs direct
 # host GPU/Wayland access, so config.json's paths.* must point at HOST copies
 # of the renderer. Since Distrobox shares $HOME with the container, copying
@@ -124,8 +121,6 @@ exec "$paper_root/libexec/skwd-paper-v2" "$@"
 WRAP
 chmod +x "$HOME/.local/bin/skwd-paper-v2"
 
-# ------------------------------------------------------------- host scripts
-
 info "Installing host-side scripts to ~/.local/bin and ~/.local/lib"
 install -m 755 "$KIT/bin/skwd-wall-v2-session" "$HOME/.local/bin/skwd-wall-v2-session"
 install -m 755 "$KIT/bin/skwd-plasma-scheme"   "$HOME/.local/bin/skwd-plasma-scheme"
@@ -137,10 +132,8 @@ install -m 755 "$KIT/lib/check-contrast.py"  "$HOME/.local/lib/skwd-wall-v2/chec
 
 case ":$PATH:" in
     *":$HOME/.local/bin:"*) ;;
-    *) warn "\$HOME/.local/bin is not on PATH — add it to your shell rc to use 'skwd-theme'" ;;
+    *) warn "\$HOME/.local/bin is not on PATH - add it to your shell rc to use 'skwd-theme'" ;;
 esac
-
-# ----------------------------------------------------------------- config
 
 info "Installing matugen templates"
 mkdir -p "$HOME/.config/skwd-wall-v2/matugen/templates"
@@ -148,14 +141,14 @@ cp -f "$KIT"/matugen/templates/* "$HOME/.config/skwd-wall-v2/matugen/templates/"
 
 CONF="$HOME/.config/skwd-wall-v2/config.json"
 if [ -f "$CONF" ]; then
-    info "config.json already exists at $CONF — leaving it alone"
+    info "config.json already exists at $CONF - leaving it alone"
     warn "compare it against config/config.json.tmpl by hand if you want the latest defaults"
 else
     info "Generating $CONF"
     sed "s|__HOME__|$HOME|g" "$KIT/config/config.json.tmpl" > "$CONF"
 
     ZEN_DIR="$(find "$HOME/.var/app/app.zen_browser.zen/.zen" -maxdepth 1 -type d -name '*.Default*' 2>/dev/null | head -1 || true)"
-    if [ -n "$ZEN_DIR" ] && ask "Found a Zen browser profile ($ZEN_DIR) — add live theming for it?"; then
+    if [ -n "$ZEN_DIR" ] && ask "Found a Zen browser profile ($ZEN_DIR) - add live theming for it?"; then
         jq --arg out1 "${ZEN_DIR/#$HOME/\~}/chrome/userChrome.css" \
            --arg out2 "${ZEN_DIR/#$HOME/\~}/chrome/userContent.css" \
            '.integrations += [
@@ -164,8 +157,6 @@ else
             ]' "$CONF" > "$CONF.tmp" && mv "$CONF.tmp" "$CONF"
     fi
 fi
-
-# --------------------------------------------------------------- systemd
 
 info "Installing the systemd user unit"
 mkdir -p "$HOME/.config/systemd/user"
@@ -179,11 +170,11 @@ cat <<EOF
 
 Next steps:
   1. Log out and back in (this exercises the same graphical-session.target
-     path the unit runs on — don't just 'systemctl --user start' it).
-  2. Drop some wallpapers in ~/Pictures/Wallpapers.
-  3. Run:  skwd-theme list
-           skwd-theme apply <name>
-           skwd-theme current
+     path the unit runs on - don't just 'systemctl --user start' it).
+  2. Drop some wallpapers in ~/Pictures/Wallpapers, then open the
+     'skwd-wall v2' picker from your app launcher to browse and apply one.
+  3. Run:  skwd-theme current
+           skwd-theme validate
 
 See docs/troubleshooting.md if a theme apply doesn't propagate everywhere,
 or if logout takes a moment the first time.

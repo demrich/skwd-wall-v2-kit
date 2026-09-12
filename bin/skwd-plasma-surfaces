@@ -59,9 +59,9 @@ skwd_log "ring frame=$FRAME inactiveFrame=${INACTIVE:-none}"
 #
 # No --notify on any of these: the flag broadcasts a ConfigChanged that every
 # Plasma process wakes and repaints for, and it does not apply these keys
-# anyway. Measured 2026-09-09: 13 broadcasts per apply with it, 5 without, and
-# the ring updated either way. Eight redundant broadcasts in a row were a
-# visible ripple through the panel and notification area.
+# anyway. Measured 13 broadcasts per apply with it, 5 without, with the ring
+# updating either way -- the eight redundant ones showed up as a visible
+# ripple through the panel and notification area.
 for k in OutlineColor OutlineColor2 OuterOutlineColor OuterOutlineColor2; do
     host kwriteconfig6 --file kwinrc --group Round-Corners --key "$k" "$FRAME"
 done

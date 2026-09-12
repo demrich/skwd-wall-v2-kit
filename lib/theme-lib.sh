@@ -41,11 +41,10 @@ skwd_log() {
 
 # ------------------------------------------------- wait for the render (!!)
 # skwd-walld spawns post-processing hooks BEFORE it renders the integration
-# templates. Measured on 1.0.0-beta.11, 2026-09-10: a hook launched at
-# 10:17:39.505 read a SkwdMatugen.colors last written at 10:17:18 — the
-# PREVIOUS wallpaper's palette. Any hook that reads a rendered file has to
-# block until that file has actually been rewritten, or the desktop lags one
-# wallpaper behind.
+# templates. On 1.0.0-beta.11 a hook launched at 10:17:39.505 read a
+# SkwdMatugen.colors last written at 10:17:18, the PREVIOUS wallpaper's
+# palette. Any hook that reads a rendered file has to block until that file
+# has actually been rewritten, or the desktop lags one wallpaper behind.
 #
 # Two obvious rules for "rewritten" are both wrong, and each was caught here:
 #
@@ -59,9 +58,9 @@ skwd_log() {
 #
 # What works is the two combined: wait for the mtime to differ from the last
 # one this hook acted on, and when there is no such record yet, seed it from
-# whatever is on disk at entry. Correct in all four cases — cold start, render
-# already landed, render still pending, and a re-apply of the same wallpaper
-# (the file is rewritten, so the mtime still moves).
+# whatever is on disk at entry. That covers all four cases: cold start,
+# render already landed, render still pending, and a re-apply of the same
+# wallpaper (the file is rewritten, so the mtime still moves).
 #
 # Bounded, and falls through rather than failing: stale colour beats no colour,
 # and theme.policy=off legitimately never rewrites the file. A manual run
@@ -92,7 +91,6 @@ skwd_wait_for_render() {
     done
 }
 
-# --------------------------------------------------------------- colour I/O
 # Reads "R,G,B" out of a KDE .colors ini section.
 skwd_scheme_rgb() {
     local file="$1" group="$2" key="$3"

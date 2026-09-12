@@ -1,13 +1,13 @@
 #!/usr/bin/bash
 # Apply the colour scheme skwd-wall v2 just rendered to the live Plasma session.
 #
-# GAP: v2 renders ~/.local/share/color-schemes/SkwdMatugen.colors but never
-# applies it — nothing in skwd-walld shells out to plasma-apply-colorscheme.
+# v2 renders ~/.local/share/color-schemes/SkwdMatugen.colors but never
+# applies it: nothing in skwd-walld shells out to plasma-apply-colorscheme.
 #
-# plasma-apply-colorscheme also refuses a scheme whose name is already current
-# ("already set as the theme for the current Plasma session") and has no force
-# option, so re-rendering the same file never repaints. Verified 2026-09-10.
-# Hence the A/B flip: copy the render to whichever of the two names is NOT
+# plasma-apply-colorscheme also refuses a scheme whose name is already
+# current ("already set as the theme for the current Plasma session") and
+# has no force option, so re-rendering the same file never repaints. Hence
+# the A/B flip below: copy the render to whichever of the two names is NOT
 # live, and apply that one.
 set -u
 # shellcheck source=lib/theme-lib.sh

@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """Check a generated KDE .colors file for text that cannot be read.
 
-rice-theme validate already proves a scheme is well-formed: required groups
-present, every value an R,G,B triple in range. A scheme can pass all of that
-and still render white text on a white button -- structural validity says
-nothing about whether a human can read the result. This is the perceptual
-half.
+skwd-theme validate already proves a scheme is well-formed: required groups
+present, every value an R,G,B triple in range. A scheme can pass all of
+that and still render white text on a white button, because structural
+validity says nothing about whether a human can read the result. This is
+the perceptual half.
 
 Each [Colors:*] group carries its own BackgroundNormal, so the pairs are read
 out of the file itself rather than assumed from a table. That keeps this
@@ -100,7 +100,7 @@ def check(path: Path) -> int:
     if not fails:
         print(f"  readable {path.name}")
         return 0
-    print(f"  UNREADABLE {path.name} — {len(fails)} pair(s) below the floor")
+    print(f"  UNREADABLE {path.name} - {len(fails)} pair(s) below the floor")
     for ratio, group, key, fg, bg, minimum in sorted(fails):
         mark = "  <-- invisible" if ratio < 1.5 else ""
         print(

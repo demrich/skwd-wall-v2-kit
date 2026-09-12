@@ -1,13 +1,14 @@
 #!/usr/bin/bash
 # Start skwd-walld for the graphical session and restore the theme.
 #
-# Two skwd-wall v2 (1.0.0-beta.11) gaps this works around, both verified
-# 2026-09-10 and both candidates for an upstream fix:
+# Two skwd-wall v2 (1.0.0-beta.11) gaps this works around, both candidates
+# for an upstream fix:
 #
 #  1. walld's startup restore re-applies the wallpaper but runs no theme
 #     steps at all (no "theme apply", no integrations, no post-processing),
-#     so a fresh login comes up with the previous session's colours. This is
-#     the same defect v1 had, which rice-theme-login.service existed to fix.
+#     so a fresh login comes up with the previous session's colours. The v1
+#     daemon had the same defect and needed the same kind of login-restore
+#     workaround.
 #  2. "skwd-helm retheme" answers "no current wallpaper to retheme" after a
 #     restore -- the restore path never populates the in-memory current
 #     wallpaper that retheme reads. So the kick has to be an explicit apply
@@ -55,12 +56,7 @@ done
 CUR=""
 for _ in $(seq 1 30); do
     CUR="$(box /usr/bin/skwd-helm current --json 2>/dev/null \
-        | python3 -c 'import sys,json
-try:
-    o=json.load(sys.stdin)["outputs"]
-    print(next((x["current"] for x in o if x.get("current")), ""))
-except Exception:
-    print("")' )"
+        | jq -r '[.outputs[]? | .current // empty] | map(select(length > 0)) | .[0] // empty' 2>/dev/null)"
     [ -n "$CUR" ] && break
     sleep 1
 done
