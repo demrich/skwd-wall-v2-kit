@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  lint:
+    name: Lint (shellcheck, syntax)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Ensure shellcheck is present
+        run: command -v shellcheck || (sudo apt-get update && sudo apt-get install -y shellcheck)
+      - name: shellcheck
+        run: |
+          shellcheck --severity=warning \
+            install.sh uninstall.sh bin/* lib/theme-lib.sh \
+            tests/*.sh tests/stubs/*
+      - name: bash -n on every shell script
+        run: |
+          set -e
+          for f in install.sh uninstall.sh bin/* lib/theme-lib.sh tests/*.sh tests/stubs/*; do
+            bash -n "$f"
+          done
+      - name: python syntax
+        run: python3 -m py_compile lib/check-contrast.py
+
+  test:
+    name: Test suite (Fedora 44 container)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    container:
+      image: registry.fedoraproject.org/fedora:44
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install test dependencies
+        run: dnf -y install jq bash coreutils findutils python3 procps-ng
+      - name: Run test suite
+        env:
+          SKWD_TEST_ALLOW_DISTROBOX_STUB: "1"
+        run: bash tests/run.sh

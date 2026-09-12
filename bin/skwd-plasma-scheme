@@ -10,6 +10,7 @@
 # Hence the A/B flip: copy the render to whichever of the two names is NOT
 # live, and apply that one.
 set -u
+# shellcheck source=lib/theme-lib.sh
 . "${SKWD_WALL_V2_LIB:-$HOME/.local/lib/skwd-wall-v2/theme-lib.sh}" || exit 0
 
 if ! skwd_wait_for_render; then

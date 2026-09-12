@@ -14,6 +14,7 @@
 # Both are optional. Missing theme or missing effect exits 0 quietly, which is
 # what makes this safe to ship to a host that has neither.
 set -u
+# shellcheck source=lib/theme-lib.sh
 . "${SKWD_WALL_V2_LIB:-$HOME/.local/lib/skwd-wall-v2/theme-lib.sh}" || exit 0
 
 DESKTOP_THEME="${SKWD_DESKTOP_THEME:-SkwdVapor}"

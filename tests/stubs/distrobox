@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+set -u
+
+STATE="${SKWD_TEST_DISTROBOX_STATE:-${HOME:-/tmp}/.cache/skwd-test-distrobox}"
+mkdir -p "$STATE"
+
+case "${1:-}" in
+    list)
+        echo "ID | NAME | STATUS | IMAGE"
+        [ -f "$STATE/boxes" ] && while IFS= read -r b; do
+            echo "stub123 | $b | Up | fedora:44"
+        done < "$STATE/boxes"
+        exit 0
+        ;;
+    assemble)
+        shift
+        file=""
+        while [ "$#" -gt 0 ]; do
+            case "$1" in --file) file="$2"; shift 2 ;; *) shift ;; esac
+        done
+        if [ -n "$file" ]; then
+            name="$(sed -n 's/^\[\(.*\)\]$/\1/p' "$file" | head -1)"
+            [ -n "$name" ] && echo "$name" >> "$STATE/boxes"
+        fi
+        exit 0
+        ;;
+    rm)
+        exit 0
+        ;;
+    enter)
+        shift
+        while [ "$#" -gt 0 ] && [ "$1" != "--" ]; do shift; done
+        [ "${1:-}" = "--" ] && shift
+        inner="$*"
+        case "$inner" in
+            *"copr enable"*|*"dnf -y install"*) exit 0 ;;
+            *"command -v skwd-helm"*) exit 0 ;;
+            *"skwd-paper-v2"*)
+                mkdir -p "$HOME/.local/libexec" "$HOME/.local/lib/skwd-paper"
+                : > "$HOME/.local/libexec/skwd-paper-v2"
+                : > "$HOME/.local/libexec/skwd-wall-still"
+                : > "$HOME/.local/libexec/skwd-wall-vk"
+                exit 0
+                ;;
+            *"skwd-helm current --json"*)
+                printf '{"outputs":[{"path":"%s"}]}\n' "${SKWD_TEST_HELM_CURRENT_PATH:-}"
+                exit 0
+                ;;
+            *"skwd-helm current"*)
+                [ -n "${SKWD_TEST_HELM_CURRENT_PATH:-}" ] && exit 0 || exit 1
+                ;;
+            *"skwd-helm apply"*)
+                exit 0
+                ;;
+            *) exit 0 ;;
+        esac
+        ;;
+    *) exit 0 ;;
+esac

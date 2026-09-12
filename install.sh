@@ -42,7 +42,11 @@ command -v jq >/dev/null 2>&1 || die "jq not found — install it (dnf install j
 if [ "${XDG_SESSION_DESKTOP:-}" != "KDE" ] && [ "${DESKTOP_SESSION:-}" != "plasma" ] && [ -z "${KDE_FULL_SESSION:-}" ]; then
     warn "This doesn't look like a KDE Plasma session (XDG_SESSION_DESKTOP=${XDG_SESSION_DESKTOP:-unset})."
     warn "skwd-wall v2's Plasma integration hooks (kwriteconfig6, plasma-apply-colorscheme) need Plasma 6."
-    ask "Continue anyway?" || exit 1
+    if [ "$ASSUME_YES" -eq 1 ]; then
+        warn "--yes given, continuing anyway."
+    else
+        ask "Continue anyway?" || exit 1
+    fi
 fi
 
 if systemctl --user is-enabled skwd-daemon.service >/dev/null 2>&1; then
@@ -150,7 +154,7 @@ else
     info "Generating $CONF"
     sed "s|__HOME__|$HOME|g" "$KIT/config/config.json.tmpl" > "$CONF"
 
-    ZEN_DIR="$(find "$HOME/.var/app/app.zen_browser.zen/.zen" -maxdepth 1 -type d -name '*.Default*' 2>/dev/null | head -1)"
+    ZEN_DIR="$(find "$HOME/.var/app/app.zen_browser.zen/.zen" -maxdepth 1 -type d -name '*.Default*' 2>/dev/null | head -1 || true)"
     if [ -n "$ZEN_DIR" ] && ask "Found a Zen browser profile ($ZEN_DIR) — add live theming for it?"; then
         jq --arg out1 "${ZEN_DIR/#$HOME/\~}/chrome/userChrome.css" \
            --arg out2 "${ZEN_DIR/#$HOME/\~}/chrome/userContent.css" \

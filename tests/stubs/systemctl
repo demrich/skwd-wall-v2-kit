@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+set -u
+
+STATE="${SKWD_TEST_SYSTEMCTL_STATE:-${HOME:-/tmp}/.cache/skwd-test-systemctl}"
+mkdir -p "$STATE"
+
+args=("$@")
+[ "${args[0]:-}" = "--user" ] && args=("${args[@]:1}")
+cmd="${args[0]:-}"
+
+case "$cmd" in
+    is-enabled)
+        unit="${args[1]:-}"
+        [ -f "$STATE/$unit.enabled" ] && exit 0 || exit 1
+        ;;
+    enable)
+        for u in "${args[@]:1}"; do
+            [ "$u" = "--now" ] && continue
+            : > "$STATE/$u.enabled"
+        done
+        exit 0
+        ;;
+    disable)
+        for u in "${args[@]:1}"; do
+            [ "$u" = "--now" ] && continue
+            rm -f "$STATE/$u.enabled"
+        done
+        exit 0
+        ;;
+    daemon-reload|start|stop) exit 0 ;;
+    *) exit 0 ;;
+esac

@@ -1,14 +1,22 @@
 #!/usr/bin/env bash
 # Remove what install.sh put in place.
 #
-#   ./uninstall.sh            stop the service, remove installed scripts/unit
-#   ./uninstall.sh --purge    also remove ~/.config/skwd-wall-v2 and the
-#                             Distrobox container (destroys your themes/config)
+#   ./uninstall.sh              stop the service, remove installed scripts/unit
+#   ./uninstall.sh --purge      also remove ~/.config/skwd-wall-v2 and the
+#                               Distrobox container (destroys your themes/config)
+#   ./uninstall.sh --purge -y   purge without the confirmation prompt
 set -euo pipefail
 
 BOX="${SKWD_WALL_V2_BOX:-skwd-wall-v2-fedora}"
 PURGE=0
-[ "${1:-}" = "--purge" ] && PURGE=1
+ASSUME_YES=0
+for arg in "$@"; do
+    case "$arg" in
+        --purge) PURGE=1 ;;
+        -y|--yes) ASSUME_YES=1 ;;
+        *) echo "uninstall.sh: unknown option $arg" >&2; exit 2 ;;
+    esac
+done
 
 info() { printf '\033[1;36m==>\033[0m %s\n' "$*"; }
 
@@ -30,8 +38,14 @@ rm -f "$HOME/.local/libexec/skwd-paper-v2" \
 rm -rf "$HOME/.local/lib/skwd-paper"
 
 if [ "$PURGE" -eq 1 ]; then
-    read -rp "This deletes ~/.config/skwd-wall-v2 (your themes/config) and the '$BOX' container. Continue? [y/N] " ans
-    [[ "$ans" == [yY]* ]] || { info "Purge cancelled; everything else above is already done."; exit 0; }
+    if [ "$ASSUME_YES" -ne 1 ]; then
+        if [ ! -t 0 ]; then
+            info "Refusing to purge non-interactively without -y/--yes; everything else above is already done."
+            exit 0
+        fi
+        read -rp "This deletes ~/.config/skwd-wall-v2 (your themes/config) and the '$BOX' container. Continue? [y/N] " ans
+        [[ "$ans" == [yY]* ]] || { info "Purge cancelled; everything else above is already done."; exit 0; }
+    fi
     info "Purging config and the Distrobox container"
     rm -rf "$HOME/.config/skwd-wall-v2"
     distrobox rm -f "$BOX" 2>/dev/null || true

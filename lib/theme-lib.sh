@@ -105,7 +105,7 @@ skwd_scheme_rgb() {
 
 skwd_rgb_to_hex() {
     local IFS=','
-    # shellcheck disable=SC2086
+    # shellcheck disable=SC2046,SC2086
     set -- $(printf '%s' "$1" | tr -d ' ')
     printf '#%02x%02x%02x' "$1" "$2" "$3"
 }
@@ -113,7 +113,7 @@ skwd_rgb_to_hex() {
 # Rough integer sRGB luminance, 0-255. Good enough to pick black-or-white text.
 skwd_lum() {
     local IFS=','
-    # shellcheck disable=SC2086
+    # shellcheck disable=SC2046,SC2086
     set -- $(printf '%s' "$1" | tr -d ' ')
     echo $(( (2126 * $1 + 7152 * $2 + 722 * $3) / 10000 ))
 }

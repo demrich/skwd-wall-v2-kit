@@ -77,6 +77,14 @@ See [docs/troubleshooting.md](docs/troubleshooting.md) — in particular, why
 this kit runs its own login script instead of just enabling `skwd-walld`
 directly, and why the systemd unit's stop timeout matters.
 
+## Testing
+
+CI (shellcheck, an `install.sh`/`uninstall.sh` round trip, and unit tests for
+the trickier logic) runs on every push and PR. See
+[docs/testing.md](docs/testing.md) for what it covers, what still needs a
+real Plasma session before a release, and how to run it yourself with
+`tests/run.sh`.
+
 ## License
 
 MIT, see [LICENSE](LICENSE). skwd-wall v2 itself has its own license — see

@@ -72,6 +72,7 @@ profile_name() {
 
 outputs() {
     jq -r '.integrations[]?.output // empty' "$CONF" 2>/dev/null | while IFS= read -r o; do
+        # shellcheck disable=SC2088
         case "$o" in
             "~/"*) echo "$HOME/${o#\~/}" ;;
             /*)    echo "$o" ;;
