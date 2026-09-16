@@ -87,6 +87,15 @@ distrobox enter -n "$BOX" -- sudo dnf -y copr enable piixini/skwd-wall-v2 >/dev/
 distrobox enter -n "$BOX" -- sudo dnf -y install "${SKWD_NVRS[@]}" >/dev/null \
     || die "package install inside '$BOX' failed - the pinned NVRs in install.sh may no longer be in the Copr repo; check https://copr.fedorainfracloud.org/coprs/piixini/skwd-wall-v2/ for current versions"
 
+# Not a Copr pin (plain Fedora repo, unversioned on purpose) - walld shells
+# out to kwriteconfig6 from inside the container to sync the KDE Plasma
+# lock-screen wallpaper, and the bare fedora:44 base image doesn't have it.
+# Without this, every apply logs "could not synchronize KDE Plasma
+# lock-screen wallpaper" and silently falls back to a static poster.
+info "Installing kwriteconfig6 (KDE lock-screen sync)"
+distrobox enter -n "$BOX" -- sudo dnf -y install kf6-kconfig >/dev/null \
+    || die "kf6-kconfig install inside '$BOX' failed"
+
 distrobox enter -n "$BOX" -- command -v skwd-helm >/dev/null 2>&1 \
     || die "skwd-helm not found inside '$BOX' after install - something upstream changed"
 

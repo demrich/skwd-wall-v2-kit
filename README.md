@@ -61,6 +61,13 @@ output directory just makes an apply noisy, it doesn't fail it. Zen browser
 theming is offered during install if a Zen profile is detected, since its
 integration needs your actual profile directory name to point at.
 
+skwd-wall v2 also syncs the KDE Plasma lock screen (`plasma.lockScreen` in
+`config.json`, default `{"dynamic": "poster", "mode": "follow"}`) - this kit
+installs `kwriteconfig6` in the container for it. It overwrites your lock
+screen's `WallpaperPlugin`; set `mode` to `"off"` if you use a different
+lock-screen wallpaper plugin. See
+[docs/troubleshooting.md](docs/troubleshooting.md) if it isn't syncing.
+
 ## Uninstall
 
 ```bash

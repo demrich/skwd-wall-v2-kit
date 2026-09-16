@@ -96,8 +96,17 @@ Copr repo publishes packages for it) before re-running `install.sh`.
 - **Custom window border/decoration styling** isn't part of this kit at
   all; it's purely a look-and-feel choice, unrelated to theme switching
   working.
-- **Lock screen wallpaper sync** is unresolved upstream as of beta.11
-  (`could not synchronize KDE Plasma lock-screen wallpaper` on every apply).
+- **Lock screen wallpaper sync failing with `could not synchronize KDE
+  Plasma lock-screen wallpaper`** isn't an upstream bug: `skwd-walld` shells
+  out to `kwriteconfig6` from inside the Distrobox container to write
+  `kscreenlockerrc`, and the bare `fedora:44` base image this kit builds
+  doesn't have it. `install.sh` installs `kf6-kconfig` for this now; if
+  you're still seeing the warning, run `distrobox enter <box> -- sudo dnf
+  install kf6-kconfig` (or re-run `install.sh`) and restart
+  `skwd-wall-v2.service`. This writes `plasma.lockScreen` (see
+  `config/config.json.tmpl`) straight into your live `kscreenlockerrc`,
+  overwriting `WallpaperPlugin` - if you use a different lock-screen
+  wallpaper plugin, set `plasma.lockScreen.mode` to `"off"` instead.
 - Bazzite/Kinoite's Breeze package sometimes ships without the default
   Alt+Tab window switcher (`kwriteconfig6 --file kwinrc --group TabBox --key
   LayoutName thumbnail_grid` fixes it). Unrelated to this kit, just a common
