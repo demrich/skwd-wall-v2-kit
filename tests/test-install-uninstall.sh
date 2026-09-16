@@ -40,12 +40,15 @@ jq empty "$CONF" || fail "config.json is not valid JSON"
 pass "install.sh --yes lays down the full expected tree"
 
 echo '{"marker": true}' > "$CONF"
+TMPL="$HOME/.config/skwd-wall-v2/matugen/templates/ghostty.conf"
+echo 'marker-edit' > "$TMPL"
 if ! ./install.sh --yes >"$tmp/reinstall.log" 2>&1; then
     cat "$tmp/reinstall.log" >&2
     fail "re-running install.sh --yes exited non-zero"
 fi
 grep -q '"marker": true' "$CONF" || fail "re-install clobbered an existing config.json"
-pass "re-running install.sh --yes is idempotent and leaves existing config.json alone"
+grep -q 'marker-edit' "$TMPL" || fail "re-install clobbered an existing matugen template"
+pass "re-running install.sh --yes is idempotent and leaves existing config.json and templates alone"
 
 if ! ./uninstall.sh --purge -y >"$tmp/uninstall.log" 2>&1; then
     cat "$tmp/uninstall.log" >&2

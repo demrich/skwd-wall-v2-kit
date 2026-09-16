@@ -16,14 +16,17 @@ on purpose; none of that is needed for theme switching to work.
 
 ## Prerequisites
 
-- Fedora Atomic (Bazzite, Kinoite, ...) or any Fedora install
 - KDE Plasma 6, Wayland
 - [Distrobox](https://distrobox.it/)
-- `jq`, `python3` (both standard on a Fedora host)
+- `jq`, `python3`
 
-Nothing here is Bazzite-specific: it's Fedora (for the Copr repo), Plasma 6
-(for the D-Bus/`kwriteconfig6` integration), and Distrobox (for running on a
-read-only `/usr`).
+Your host distro doesn't matter: `install.sh` always builds a `fedora:44`
+Distrobox container (see `distrobox-assemble.ini`) and does the Copr
+enable/install inside it, so this works the same on Bazzite, Kinoite, plain
+Fedora, or any other Linux with Plasma 6 + Distrobox. Nothing here is
+Bazzite-specific, and nothing on the host itself needs to be Fedora - only
+Plasma 6 (for the D-Bus/`kwriteconfig6` integration) and Distrobox (for
+running on a read-only `/usr`, or any host at all).
 
 ## Install
 

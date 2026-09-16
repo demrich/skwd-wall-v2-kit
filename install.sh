@@ -37,6 +37,7 @@ info "Checking prerequisites"
 command -v distrobox >/dev/null 2>&1 || die "distrobox not found - install it first (it's how skwd-wall v2 runs on an immutable host)"
 command -v systemctl >/dev/null 2>&1 || die "systemctl not found - this kit needs systemd --user units"
 command -v jq >/dev/null 2>&1 || die "jq not found - install it (dnf install jq, or via a distrobox/flatpak-exported copy on PATH)"
+command -v python3 >/dev/null 2>&1 || die "python3 not found - install it (dnf install python3); needed by skwd-theme validate's contrast check"
 
 if [ "${XDG_SESSION_DESKTOP:-}" != "KDE" ] && [ "${DESKTOP_SESSION:-}" != "plasma" ] && [ -z "${KDE_FULL_SESSION:-}" ]; then
     warn "This doesn't look like a KDE Plasma session (XDG_SESSION_DESKTOP=${XDG_SESSION_DESKTOP:-unset})."
@@ -145,8 +146,16 @@ case ":$PATH:" in
 esac
 
 info "Installing matugen templates"
-mkdir -p "$HOME/.config/skwd-wall-v2/matugen/templates"
-cp -f "$KIT"/matugen/templates/* "$HOME/.config/skwd-wall-v2/matugen/templates/"
+TEMPLATE_DIR="$HOME/.config/skwd-wall-v2/matugen/templates"
+mkdir -p "$TEMPLATE_DIR"
+for tmpl in "$KIT"/matugen/templates/*; do
+    dest="$TEMPLATE_DIR/$(basename "$tmpl")"
+    if [ -e "$dest" ]; then
+        info "$(basename "$tmpl") already exists at $dest - leaving it alone"
+    else
+        cp "$tmpl" "$dest"
+    fi
+done
 
 CONF="$HOME/.config/skwd-wall-v2/config.json"
 if [ -f "$CONF" ]; then
