@@ -54,14 +54,19 @@ if systemctl --user is-enabled skwd-daemon.service >/dev/null 2>&1; then
 fi
 
 # Package versions pinned here on purpose: skwd-wall-v2-session's login
-# workaround targets specific beta.11 daemon-restore bugs (see
-# docs/troubleshooting.md). An unversioned `dnf install` on an existing box
-# would silently upgrade past the version this kit was verified against.
+# workaround targets specific daemon-restore bugs (see docs/troubleshooting.md).
+# An unversioned `dnf install` on an existing box would silently upgrade past
+# the version this kit was verified against.
+#
+# Bumped beta.11 -> beta.17 on 2026-09-20. The login workaround is retained:
+# no release note between beta.12 and beta.17 claims the startup restore now
+# runs theme steps, nor that `skwd-helm retheme` can see a restored wallpaper.
+# Re-test those two directly before dropping it.
 SKWD_NVRS=(
-    skwd-wall-v2-1.0.0~beta.11-4.fc44
-    skwd-paper-1.0.0~beta.11-4.fc44
-    skwd-deck-1.0.0~beta.11-4.fc44
-    skwd-lens-1.0.0~beta.11-4.fc44
+    skwd-wall-v2-1.0.0~beta.17-4.fc44
+    skwd-paper-1.0.0~beta.17-4.fc44
+    skwd-deck-1.0.0~beta.17-4.fc44
+    skwd-lens-1.0.0~beta.17-4.fc44
     skwd-lens-model-1.0.0-1.fc44
 )
 

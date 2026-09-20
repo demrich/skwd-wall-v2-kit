@@ -1,7 +1,9 @@
 # Troubleshooting
 
-Verified against **skwd-wall v2 1.0.0-beta.11**. If a future upstream release
-fixes one of these, delete the corresponding workaround from this kit rather
+Pinned to **skwd-wall v2 1.0.0-beta.17**; the workarounds below were first
+verified against beta.11 and re-checked against the beta.12-beta.17 release
+notes on 2026-09-20, which never claim either bug fixed. If a future upstream
+release fixes one, delete the corresponding workaround from this kit rather
 than keeping both; check the comment at the top of the affected script.
 
 ## Why does this kit run its own login script instead of just enabling skwd-walld?
