@@ -40,36 +40,52 @@ skwd_log() {
 }
 
 # ------------------------------------------------- wait for the render (!!)
-# skwd-walld spawns post-processing hooks BEFORE it renders the integration
-# templates. On 1.0.0-beta.11 a hook launched at 10:17:39.505 read a
-# SkwdMatugen.colors last written at 10:17:18, the PREVIOUS wallpaper's
-# palette. Any hook that reads a rendered file has to block until that file
-# has actually been rewritten, or the desktop lags one wallpaper behind.
+# skwd-walld spawns post-processing hooks concurrently with, not strictly
+# after, the render. A hook that reads a rendered file therefore has to block
+# until that file has actually been rewritten, or the desktop lags one
+# wallpaper behind.
 #
 # Two obvious rules for "rewritten" are both wrong, and each was caught here:
 #
-#   mtime >= my start time      Wrong. The hooks are spawned concurrently and
-#                               are not ordered against the renderer, so a hook
-#                               scheduled late finds the render already done,
-#                               waits out its whole timeout, and skips.
+#   mtime >= my start time      Wrong. The hooks are not ordered against the
+#                               renderer, so a hook scheduled late finds the
+#                               render already done, waits out its whole
+#                               timeout, and skips.
 #   mtime != last one I saw     Wrong on a cold start. With no state file
 #                               anything on disk counts as fresh, so the first
 #                               apply after install uses the previous palette.
 #
-# What works is the two combined: wait for the mtime to differ from the last
-# one this hook acted on, and when there is no such record yet, seed it from
-# whatever is on disk at entry. That covers all four cases: cold start,
-# render already landed, render still pending, and a re-apply of the same
-# wallpaper (the file is rewritten, so the mtime still moves).
+# Combining the two (wait for an mtime differing from the last one this hook
+# acted on, seeded at entry when there is no record yet) covers the cold
+# start, the render that already landed, the render still pending, and a
+# re-apply of the same wallpaper. It is still not enough on its own.
+#
+# The remaining case: walld can spawn this apply's hook before this apply's
+# render starts, while the PREVIOUS apply's render is still on disk
+# unconsumed, because a faster hook exited first or the previous apply outran
+# its own hook. That leftover differs from what this hook last recorded, so it
+# looks exactly like a fresh render and gets consumed. The result is a
+# deterministic one-apply lag, not an occasional race: the colour always
+# arrives one selection late, which is what "press Enter twice" actually is.
+#
+# No state available to a shell hook separates "this mtime is mine" from "this
+# is an older apply's unconsumed render"; both are only "different from what I
+# recorded". The fix is time rather than bookkeeping. Do not trust the first
+# differing mtime, wait for it to stop changing for a moment. A genuinely
+# fresh render lands within a few hundred ms and its write supersedes whatever
+# stale mtime was first seen, restarting the quiet timer on the real one. A
+# long-settled leftover is never superseded during that window, which is
+# indistinguishable from a real render that is quiet because it is finished,
+# so it is still accepted, just after confirming nothing newer is landing.
 #
 # Bounded, and falls through rather than failing: stale colour beats no colour,
 # and theme.policy=off legitimately never rewrites the file. A manual run
 # outside an apply therefore always times out; set SKWD_HOOK_NO_WAIT=1 to skip
 # the wait when testing a hook by hand.
 skwd_wait_for_render() {
-    local file="${1:-$SCHEME_SRC}" timeout="${2:-10}"
+    local file="${1:-$SCHEME_SRC}" timeout="${2:-10}" quiet="${3:-0.3}"
     local state="$SKWD_CACHE/${0##*/}.last-render"
-    local last cur start now
+    local last cur start now settle quiet_since resets=0
     [ -n "${SKWD_HOOK_NO_WAIT:-}" ] && return 0
     mkdir -p "$SKWD_CACHE" 2>/dev/null
     last="$(cat "$state" 2>/dev/null)"
@@ -78,11 +94,29 @@ skwd_wait_for_render() {
     # the stale file already on disk.
     [ -n "$last" ] || last="$SKWD_ENTRY_MTIME"
     start=$(date +%s.%N)
+    settle=""
     while :; do
         cur="$(stat -c %.Y "$file" 2>/dev/null || echo 0)"
         if [ "$cur" != "0" ] && [ "$cur" != "$last" ]; then
-            printf '%s' "$cur" >"$state" 2>/dev/null || true
-            return 0
+            if [ "$cur" != "$settle" ]; then
+                # First sighting of this value, or a newer write just
+                # superseded the one being watched. Either way, restart the
+                # quiet window on it rather than trusting it yet.
+                [ -n "$settle" ] && resets=$((resets + 1))
+                settle="$cur"
+                quiet_since=$(date +%s.%N)
+            else
+                now=$(date +%s.%N)
+                if awk -v a="$now" -v b="$quiet_since" -v q="$quiet" \
+                    'BEGIN{exit !(a-b >= q)}'; then
+                    printf '%s' "$cur" >"$state" 2>/dev/null || true
+                    # Low-noise trail for next time this lags: which render
+                    # this hook accepted, and whether it discarded an earlier
+                    # (possibly stale) one first.
+                    skwd_log "render accepted mtime=$cur superseded=$resets waited=$(awk -v a="$now" -v b="$start" 'BEGIN{printf "%.3f", a-b}')s"
+                    return 0
+                fi
+            fi
         fi
         now=$(date +%s.%N)
         awk -v a="$now" -v b="$start" -v t="$timeout" \
@@ -91,6 +125,7 @@ skwd_wait_for_render() {
     done
 }
 
+# --------------------------------------------------------------- colour I/O
 # Reads "R,G,B" out of a KDE .colors ini section.
 skwd_scheme_rgb() {
     local file="$1" group="$2" key="$3"

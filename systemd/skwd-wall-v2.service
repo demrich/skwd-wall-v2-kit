@@ -10,6 +10,11 @@ ExecStart=%h/.local/bin/skwd-wall-v2-session start
 ExecStop=%h/.local/bin/skwd-wall-v2-session stop
 # Bounded teardown: v1's 15s stop timeout is the documented logout-freeze race.
 TimeoutStopSec=5s
+# Bounded startup too: a stuck ExecStart (the cold-container log-follow race
+# described in bin/skwd-wall-v2-session) otherwise parks a start job forever,
+# which blocks the stop transaction for graphical-session.target at the next
+# logout just as badly as a slow stop would.
+TimeoutStartSec=30s
 KillMode=mixed
 Slice=session.slice
 

@@ -14,6 +14,16 @@
 #     wallpaper that retheme reads. So the kick has to be an explicit apply
 #     of the path that "skwd-helm current" reports.
 #
+#  3. Two "distrobox enter" calls issued back-to-back while the container is
+#     still cold each tail their own "podman logs -f", waiting for the
+#     container's one-time ready line. If the first entry already consumed
+#     that line before the second starts watching, the second waits forever.
+#     ExecStart then never returns, so the start job blocks the stop
+#     transaction for graphical-session.target at the next logout. Warming
+#     the container with one blocking call before any backgrounded or looped
+#     entry avoids the race; the timeout below is the backstop, and the unit
+#     caps the whole thing at TimeoutStartSec.
+#
 # Stop must be fast. skwd-daemon (v1) held plasma-workspace teardown open for
 # ~13 s on stop and that race window is the documented cause of this host's
 # logout/login freeze. Kill walld directly rather than tearing down the
@@ -21,7 +31,7 @@
 set -u
 
 BOX="${SKWD_WALL_V2_BOX:-skwd-wall-v2-fedora}"
-box() { /usr/bin/distrobox enter -n "$BOX" -- "$@"; }
+box() { timeout 20 /usr/bin/distrobox enter -n "$BOX" -- "$@"; }
 
 case "${1:-start}" in
 stop)
@@ -45,6 +55,11 @@ done
 # ignores every later edit to config.json, which looks exactly like the config
 # not working. Restarting the unit is how config changes are meant to land.
 pkill -f '^/usr/bin/skwd-walld' 2>/dev/null && sleep 1
+
+# Gap 3: warm the container synchronously before the backgrounded walld entry
+# and the polling loops below, so none of them races a cold container start.
+box true >/dev/null 2>&1
+
 box /usr/bin/skwd-walld &
 
 # Wait for the socket, then for the restore to publish a current wallpaper.

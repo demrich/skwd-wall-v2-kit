@@ -82,3 +82,27 @@ if XDG_DATA_HOME="$d4/data" XDG_CACHE_HOME="$d4/cache" bash -c '
 else
     pass "wait: times out when the render never lands"
 fi
+
+# The leftover case the quiet window exists for: an unconsumed render from a
+# previous apply is already on disk and differs from this hook's recorded
+# state, so the bare mtime-differs check would accept it and lag one wallpaper
+# behind. The real render lands mid-window and must win.
+d5="$tmp/case5"; mkdir -p "$d5/data/color-schemes" "$d5/cache/skwd-wall-v2"
+echo leftover > "$d5/data/color-schemes/SkwdMatugen.colors"
+stale_mtime="$(stat -c %.Y "$d5/data/color-schemes/SkwdMatugen.colors")"
+accepted="$(XDG_DATA_HOME="$d5/data" XDG_CACHE_HOME="$d5/cache" bash -c '
+    set -u
+    . "'"$LIB"'"
+    mkdir -p "$SKWD_CACHE"
+    # Any value the leftover does not match, so it reads as a fresh render.
+    echo 1 > "$SKWD_CACHE/${0##*/}.last-render"
+    ( sleep 0.15; echo real > "$SCHEME_SRC" ) &
+    skwd_wait_for_render "$SCHEME_SRC" 5
+    cat "$SKWD_CACHE/${0##*/}.last-render"
+' case5-hook)"
+real_mtime="$(stat -c %.Y "$d5/data/color-schemes/SkwdMatugen.colors")"
+if [ "$accepted" = "$real_mtime" ] && [ "$accepted" != "$stale_mtime" ]; then
+    pass "wait: a superseded leftover render is discarded for the real one"
+else
+    fail "wait: accepted '$accepted', expected the real render '$real_mtime' (stale was '$stale_mtime')"
+fi
