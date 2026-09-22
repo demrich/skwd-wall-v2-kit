@@ -65,11 +65,20 @@ fi
 # native packages, Fedora's libshaderc-devel provider). Re-test those two
 # directly before dropping the workaround.
 #
-# The Copr repo keeps only the newest build of each package, so a pin stops
-# resolving as soon as upstream supersedes it and install.sh then fails at the
-# dnf step. beta.17-4 became unresolvable the same day beta.18-4 landed. Bump
-# this block promptly rather than treating the pin as indefinitely valid; the
-# copr-pins workflow is what catches it.
+# The pin is not as perishable as an earlier version of this comment claimed.
+# Old builds are not dropped when a new one lands: checked live on 2026-09-21,
+# the repo still served every build back to beta.1, with beta.16, beta.17 and
+# beta.18 resolving side by side. The project does have auto_prune on, so a pin
+# ages out eventually, but in weeks rather than on the next rebuild.
+#
+# A failure at the dnf step below is therefore much more likely to be Copr
+# being slow than the pin being gone. That project's Pulp/S3 backend has served
+# this 1.5 KB repomd.xml at a few hundred bytes/sec, which trips dnf's default
+# minrate=1000 and aborts the whole refresh. curl fetches it fine at the same
+# moment, so "curl works" does not clear the pin of suspicion, and an aborted
+# refresh reports every NVR as missing. Confirm with
+#   dnf --setopt=minrate=0 --setopt=timeout=120 repoquery --refresh <nvr>
+# before concluding a pin is dead and bumping it.
 SKWD_NVRS=(
     skwd-wall-v2-1.0.0~beta.18-4.fc44
     skwd-paper-1.0.0~beta.18-4.fc44
@@ -99,7 +108,7 @@ info "Enabling the Copr repo and installing pinned packages"
 distrobox enter -n "$BOX" -- sudo dnf -y copr enable piixini/skwd-wall-v2 >/dev/null \
     || die "copr enable failed inside '$BOX' - is dnf5-plugins present? (see distrobox-assemble.ini)"
 distrobox enter -n "$BOX" -- sudo dnf -y install "${SKWD_NVRS[@]}" >/dev/null \
-    || die "package install inside '$BOX' failed - the pinned NVRs in install.sh may no longer be in the Copr repo; check https://copr.fedorainfracloud.org/coprs/piixini/skwd-wall-v2/ for current versions"
+    || die "package install inside '$BOX' failed - usually Copr's metadata being too slow for dnf's minrate guard rather than a dead pin; retry, and only if it keeps failing check https://copr.fedorainfracloud.org/coprs/piixini/skwd-wall-v2/ for current versions"
 
 # Not a Copr pin (plain Fedora repo, unversioned on purpose) - walld shells
 # out to kwriteconfig6 from inside the container to sync the KDE Plasma

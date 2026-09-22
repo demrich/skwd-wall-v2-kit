@@ -29,10 +29,6 @@ does on every push/PR (`.github/workflows/ci.yml`):
   inside the CI job's disposable, root, Fedora 44 *container* (see the guard
   at the top of `tests/test-skwd-theme-current.sh`). This never runs
   anywhere else; it refuses to touch a path that already exists.
-- **Copr pin freshness** (`.github/workflows/copr-pins.yml`, weekly, doesn't
-  block PRs): actually installs the exact pinned NVRs from `install.sh` in a
-  fresh Fedora 44 container, so an upstream Copr prune gets caught before a
-  downloader hits it.
 
 Run the whole local/CI-safe suite yourself with:
 

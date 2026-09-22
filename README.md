@@ -1,9 +1,18 @@
 # skwd-wall-v2-kit
 
-Wire [skwd-wall v2](https://copr.fedorainfracloud.org/coprs/piixini/skwd-wall-v2/)
-(wallpaper-derived theming) straight into KDE Plasma on a Fedora Atomic
-(Bazzite, Kinoite, ...) or any other Fedora + Plasma 6 host, in one script,
-without manual container setup or hand-edited config.
+My personal setup for [skwd-wall v2](https://copr.fedorainfracloud.org/coprs/piixini/skwd-wall-v2/)
+(wallpaper-derived theming) on KDE Plasma: the Distrobox definition, the
+Plasma integration layer, and the matugen templates for the apps I run.
+
+**Scope: this is a personal setup repo, not a distributable installer.** It is
+built and tested against exactly one machine, a `bazzite-nvidia-open` host
+running Plasma 6 on Wayland. It is public because the pieces are useful to
+read, not because it is expected to work unmodified anywhere else. Two things
+in particular will not transfer: the `integrations` list and the matugen
+templates target my app set (Zen browser, Vesktop, Spicetify, Ghostty, btop,
+yazi, ...), and `bin/skwd-wall-v2-session` works around specific skwd-wall v2
+daemon bugs, which is also the only reason the package versions are pinned.
+Expect to edit both.
 
 skwd-wall v2 itself is upstream; this kit doesn't fork or bundle its code.
 What's here is the Distrobox definition and the KDE Plasma integration layer
@@ -32,14 +41,12 @@ rather than as an install error. The ffmpeg libraries skwd-paper needs are
 bundled by the package itself and copied out alongside the binaries, so
 those never have to be present on the host.
 
-Your host distro doesn't matter: `install.sh` always builds a `fedora:44`
-Distrobox container (see `distrobox-assemble.ini`) and does the Copr
-enable/install inside it, so this works the same on Bazzite, Kinoite, plain
-Fedora, or any other Linux with Plasma 6 + Distrobox. Nothing here is
-Bazzite-specific, and nothing on the host itself needs to be Fedora - only
-Plasma 6 (for the D-Bus/`kwriteconfig6` integration), Distrobox (for
-running on a read-only `/usr`, or any host at all), and the renderer
-libraries listed above.
+`install.sh` always builds a `fedora:44` Distrobox container (see
+`distrobox-assemble.ini`) and does the Copr enable/install inside it, so the
+host itself does not have to be Fedora. In principle that makes the container
+side portable to any Plasma 6 + Distrobox host. In practice only Bazzite has
+been tested, and the host still needs Plasma 6 for the D-Bus/`kwriteconfig6`
+integration plus the renderer libraries listed above.
 
 ## Install
 
@@ -104,7 +111,7 @@ directly, and why the systemd unit's stop timeout matters.
 CI (shellcheck, an `install.sh`/`uninstall.sh` round trip, and unit tests for
 the trickier logic) runs on every push and PR. See
 [docs/testing.md](docs/testing.md) for what it covers, what still needs a
-real Plasma session before a release, and how to run it yourself with
+real Plasma session to check by hand, and how to run it yourself with
 `tests/run.sh`.
 
 ## License
