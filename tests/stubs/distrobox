@@ -32,30 +32,11 @@ case "${1:-}" in
         while [ "$#" -gt 0 ] && [ "$1" != "--" ]; do shift; done
         [ "${1:-}" = "--" ] && shift
         inner="$*"
-        # What was asked for, not just what the stub faked in response. The
-        # payload this kit once shipped without was missing from the request
-        # itself, which a check on the resulting tree cannot see.
         printf '%s\n' "$inner" >> "$STATE/enter.log"
         case "$inner" in
-            *"copr enable"*|*"dnf -y install"*) exit 0 ;;
-            *"command -v skwd-helm"*) exit 0 ;;
-            *"skwd-paper-v2"*)
-                mkdir -p "$HOME/.local/libexec" "$HOME/.local/lib/skwd-paper"
-                : > "$HOME/.local/libexec/skwd-paper-v2"
-                : > "$HOME/.local/libexec/skwd-wall-still"
-                : > "$HOME/.local/libexec/skwd-wall-vk"
-                # Both halves of the wallpaper plugin, stood up separately so
-                # a copy that only does one of them fails the test.
-                mkdir -p "$HOME/.local/share/plasma/wallpapers/org.skwd.wall.plasma/contents/ui" \
-                         "$HOME/.local/lib64/qml/org/skwd/wallpaper"
-                : > "$HOME/.local/share/plasma/wallpapers/org.skwd.wall.plasma/metadata.json"
-                : > "$HOME/.local/share/plasma/wallpapers/org.skwd.wall.plasma/contents/ui/main.qml"
-                : > "$HOME/.local/lib64/qml/org/skwd/wallpaper/libskwdwallpaperplugin.so"
-                : > "$HOME/.local/lib64/qml/org/skwd/wallpaper/qmldir"
-                exit 0
-                ;;
             *"skwd-helm current --json"*)
-                printf '{"outputs":[{"path":"%s"}]}\n' "${SKWD_TEST_HELM_CURRENT_PATH:-}"
+                printf '{"outputs":[{"path":"%s","current":"%s"}]}\n' \
+                    "${SKWD_TEST_HELM_CURRENT_PATH:-}" "${SKWD_TEST_HELM_CURRENT_PATH:-}"
                 exit 0
                 ;;
             *"skwd-helm current"*)

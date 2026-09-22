@@ -1,0 +1,21 @@
+[Unit]
+Description=Re-apply the skwd-wall v2 theme after walld's startup restore
+# skwd-walld.service (from skwd-bazzite) starts the daemon; this only runs the
+# theme steps its restore skips. A separate unit rather than an ExecStartPost
+# on skwd-walld, so a slow restore can never time out and take the daemon
+# down with it.
+After=graphical-session.target skwd-walld.service
+Requisite=skwd-walld.service
+PartOf=graphical-session.target
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/skwd-wall-v2-session
+# Bounded: a start job still pending at logout holds the
+# graphical-session.target stop transaction open.
+TimeoutStartSec=60s
+TimeoutStopSec=5s
+Slice=session.slice
+
+[Install]
+WantedBy=graphical-session.target

@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# Stands in for an installed skwd-bazzite; install.sh only checks it exists.
+exit 0

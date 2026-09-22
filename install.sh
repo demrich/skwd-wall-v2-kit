@@ -1,23 +1,24 @@
 #!/usr/bin/env bash
-# Install skwd-wall v2 + the KDE Plasma integration layer in this kit.
+# Install the KDE Plasma theming layer in this kit on top of skwd-wall v2.
 #
 #   ./install.sh              interactive install
 #   ./install.sh --yes        don't prompt (skip optional browser integration)
-#   ./install.sh --box NAME   use a Distrobox name other than skwd-wall-v2-fedora
+#
+# skwd-wall v2 itself (the Distrobox, the Copr packages, the renderers and
+# the Plasma wallpaper plugin on the host, the daemon unit, and updates) is
+# installed and kept current by skwd-bazzite, which has to be installed first.
 #
 # Re-running after a partial or failed install won't duplicate anything or
 # clobber existing config; each step checks first.
 set -euo pipefail
 
 KIT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-BOX="${SKWD_WALL_V2_BOX:-skwd-wall-v2-fedora}"
 ASSUME_YES=0
 
 while [ "$#" -gt 0 ]; do
     case "$1" in
         --yes|-y) ASSUME_YES=1; shift ;;
-        --box) BOX="$2"; shift 2 ;;
-        -h|--help) sed -n '2,9p' "$0" | sed 's/^# \?//'; exit 0 ;;
+        -h|--help) sed -n '2,12p' "$0" | sed 's/^# \?//'; exit 0 ;;
         *) echo "install.sh: unknown option $1" >&2; exit 2 ;;
     esac
 done
@@ -34,14 +35,16 @@ ask() {
 }
 
 info "Checking prerequisites"
-command -v distrobox >/dev/null 2>&1 || die "distrobox not found - install it first (it's how skwd-wall v2 runs on an immutable host)"
 command -v systemctl >/dev/null 2>&1 || die "systemctl not found - this kit needs systemd --user units"
 command -v jq >/dev/null 2>&1 || die "jq not found - install it (dnf install jq, or via a distrobox/flatpak-exported copy on PATH)"
 command -v python3 >/dev/null 2>&1 || die "python3 not found - install it (dnf install python3); needed by skwd-theme validate's contrast check"
+SKWD_BAZZITE="$(command -v skwd-bazzite || echo "$HOME/.local/bin/skwd-bazzite")"
+[ -x "$SKWD_BAZZITE" ] && [ -f "${XDG_CONFIG_HOME:-$HOME/.config}/skwd-bazzite/config" ] \
+    || die "skwd-bazzite is not installed. Install it first (skwd-bazzite install), then re-run this."
 
 if [ "${XDG_SESSION_DESKTOP:-}" != "KDE" ] && [ "${DESKTOP_SESSION:-}" != "plasma" ] && [ -z "${KDE_FULL_SESSION:-}" ]; then
     warn "This doesn't look like a KDE Plasma session (XDG_SESSION_DESKTOP=${XDG_SESSION_DESKTOP:-unset})."
-    warn "skwd-wall v2's Plasma integration hooks (kwriteconfig6, plasma-apply-colorscheme) need Plasma 6."
+    warn "The theming hooks (kwriteconfig6, plasma-apply-colorscheme) need Plasma 6."
     if [ "$ASSUME_YES" -eq 1 ]; then
         warn "--yes given, continuing anyway."
     else
@@ -53,178 +56,12 @@ if systemctl --user is-enabled skwd-daemon.service >/dev/null 2>&1; then
     die "legacy skwd-daemon.service is enabled. Two units racing to restore the theme on login is a known cause of logout freezes. Run: systemctl --user disable --now skwd-daemon.service, then re-run this installer."
 fi
 
-# Package versions pinned here on purpose: skwd-wall-v2-session's login
-# workaround targets specific daemon-restore bugs (see docs/troubleshooting.md).
-# An unversioned `dnf install` on an existing box would silently upgrade past
-# the version this kit was verified against.
-#
-# Bumped beta.17 -> beta.18 on 2026-09-21. The login workaround is retained:
-# no release note between beta.12 and beta.18 claims the startup restore now
-# runs theme steps, nor that `skwd-helm retheme` can see a restored wallpaper.
-# beta.18-4's only changelog entry is a packaging change (four coordinated
-# native packages, Fedora's libshaderc-devel provider). Re-test those two
-# directly before dropping the workaround.
-#
-# The pin is not as perishable as an earlier version of this comment claimed.
-# Old builds are not dropped when a new one lands: checked live on 2026-09-21,
-# the repo still served every build back to beta.1, with beta.16, beta.17 and
-# beta.18 resolving side by side. The project does have auto_prune on, so a pin
-# ages out eventually, but in weeks rather than on the next rebuild.
-#
-# A failure at the dnf step below is therefore much more likely to be Copr
-# being slow than the pin being gone. That project's Pulp/S3 backend has served
-# this 1.5 KB repomd.xml at a few hundred bytes/sec, which trips dnf's default
-# minrate=1000 and aborts the whole refresh. curl fetches it fine at the same
-# moment, so "curl works" does not clear the pin of suspicion, and an aborted
-# refresh reports every NVR as missing. Confirm with
-#   dnf --setopt=minrate=0 --setopt=timeout=120 repoquery --refresh <nvr>
-# before concluding a pin is dead and bumping it.
-SKWD_NVRS=(
-    skwd-wall-v2-1.0.0~beta.18-4.fc44
-    skwd-paper-1.0.0~beta.18-4.fc44
-    skwd-deck-1.0.0~beta.18-4.fc44
-    skwd-lens-1.0.0~beta.18-4.fc44
-    skwd-lens-model-1.0.0-1.fc44
-)
-
-# Pinned separately, and deliberately not in the list above. skwd-paper-plasma
-# carries its own release number (-1, not -4), because it builds from its own
-# source tarball and does not track the suite's release bumps, so check it by
-# itself when bumping the others.
-#
-# It is also never installed into the container, only downloaded and unpacked
-# there. Its requires include Qt6 Quick, EGL, and (from a spec that leaks its
-# build deps into runtime) cmake and gcc-c++, so `dnf install` resolves to 408
-# packages against fedora:44. Not one of them would ever run: the plugin is
-# loaded by plasmashell on the host, and the container is only a convenient
-# place to reach the Copr repo from.
-SKWD_PLASMA_NVR=skwd-paper-plasma-1.0.0~beta.18-1.fc44.x86_64
-
-box_exists() {
-    distrobox list --no-color 2>/dev/null \
-        | awk -F'|' 'NR>1{gsub(/^[ \t]+|[ \t]+$/,"",$2); print $2}' \
-        | grep -qx "$1"
-}
-
-info "Assembling Distrobox container '$BOX'"
-if box_exists "$BOX"; then
-    info "container '$BOX' already exists, reusing it"
-else
-    ASSEMBLE_FILE="$(mktemp)"
-    trap 'rm -f "$ASSEMBLE_FILE"' EXIT
-    sed "s/__BOX__/$BOX/" "$KIT/distrobox-assemble.ini" > "$ASSEMBLE_FILE"
-    distrobox assemble create --file "$ASSEMBLE_FILE" \
-        || die "distrobox assemble create failed - see output above"
-fi
-
-info "Enabling the Copr repo and installing pinned packages"
-distrobox enter -n "$BOX" -- sudo dnf -y copr enable piixini/skwd-wall-v2 >/dev/null \
-    || die "copr enable failed inside '$BOX' - is dnf5-plugins present? (see distrobox-assemble.ini)"
-distrobox enter -n "$BOX" -- sudo dnf -y install "${SKWD_NVRS[@]}" >/dev/null \
-    || die "package install inside '$BOX' failed - usually Copr's metadata being too slow for dnf's minrate guard rather than a dead pin; retry, and only if it keeps failing check https://copr.fedorainfracloud.org/coprs/piixini/skwd-wall-v2/ for current versions"
-
-# Not a Copr pin (plain Fedora repo, unversioned on purpose) - walld shells
-# out to kwriteconfig6 from inside the container to sync the KDE Plasma
-# lock-screen wallpaper, and the bare fedora:44 base image doesn't have it.
-# Without this, every apply logs "could not synchronize KDE Plasma
-# lock-screen wallpaper" and silently falls back to a static poster.
-info "Installing kwriteconfig6 (KDE lock-screen sync)"
-distrobox enter -n "$BOX" -- sudo dnf -y install kf6-kconfig >/dev/null \
-    || die "kf6-kconfig install inside '$BOX' failed"
-
-distrobox enter -n "$BOX" -- command -v skwd-helm >/dev/null 2>&1 \
-    || die "skwd-helm not found inside '$BOX' after install - something upstream changed"
-
-# host-side renderer binaries and Plasma wallpaper plugin
-#
-# On Plasma the wallpaper is not drawn by the daemon. skwd-paper-plasma is a
-# Plasma wallpaper plugin, and its main.qml hands a `paper` binary name to a
-# SkwdVideoItem that plasmashell then spawns itself. So the renderers have to
-# exist on the host as plain files plasmashell can execute, and config.json's
-# paths.* must be absolute HOST paths. Container copies are unreachable from
-# plasmashell no matter how the daemon is started.
-#
-# That also means the plugin itself cannot live in the container: plasmashell
-# loads it, so both of its payloads have to end up on the host, the Plasma
-# wallpaper package and the native QML module it imports. The container is
-# used only to fetch and unpack them.
-#
-# Since Distrobox shares $HOME with the container, copying from inside the
-# container writes straight to the host's $HOME.
-info "Copying renderer binaries and the Plasma wallpaper plugin out to the host (\$HOME is shared with the container)"
-mkdir -p "$HOME/.local/libexec" "$HOME/.local/lib/skwd-paper" "$HOME/.local/bin" \
-         "$HOME/.local/share/icons/hicolor/scalable/apps" "$HOME/.local/share/applications" \
-         "$HOME/.local/share/plasma/wallpapers" "$HOME/.local/lib64/qml/org/skwd"
-distrobox enter -n "$BOX" -- bash -c '
-    # pipefail matters: the plugin is unpacked through a pipe below, and
-    # without it a failed rpm2archive is hidden by tar exiting 0 on no input.
-    set -eo pipefail
-    PLASMA_NVR="$1"
-    cp -f /usr/bin/skwd-paper-v2   "$HOME/.local/libexec/skwd-paper-v2"
-    cp -f /usr/bin/skwd-wall-still "$HOME/.local/libexec/skwd-wall-still"
-    cp -f /usr/bin/skwd-wall-vk    "$HOME/.local/libexec/skwd-wall-vk"
-    # Whole directory, not just *.so*: skwd-paper also ships a helper binary
-    # (skwd-paper-tinier) alongside the ffmpeg libs.
-    cp -rf /usr/lib/skwd-paper/. "$HOME/.local/lib/skwd-paper/" 2>/dev/null || true
-    # For the host launcher written further down. Not fatal if upstream stops
-    # shipping it; the launcher falls back to a stock Plasma icon name.
-    cp -f /usr/share/icons/hicolor/scalable/apps/skwd-wall-v2.svg \
-        "$HOME/.local/share/icons/hicolor/scalable/apps/skwd-wall-v2.svg" 2>/dev/null || true
-    # The wallpaper plugin, unpacked rather than installed (see SKWD_PLASMA_NVR
-    # above), then copied out replacing any previous copy of it.
-    #
-    # Both halves come from the same package build and have to move together.
-    # beta.18 main.qml instantiates a SkwdWindowMonitor that only exists in the
-    # matching QML module, and a QML type that will not resolve leaves a blank
-    # desktop rather than an error, so a half-update looks like a crash.
-    tmp="$(mktemp -d)"
-    trap "rm -rf \"$tmp\"" EXIT
-    dnf download -q --setopt=minrate=0 --setopt=timeout=120 \
-        --destdir="$tmp" "$PLASMA_NVR"
-    rpm2archive - < "$tmp"/*.rpm | tar -xz -C "$tmp"
-    cp -rf "$tmp/usr/share/plasma/wallpapers/org.skwd.wall.plasma" \
-        "$HOME/.local/share/plasma/wallpapers/"
-    cp -rf "$tmp/usr/lib64/qt6/qml/org/skwd/wallpaper" \
-        "$HOME/.local/lib64/qml/org/skwd/"
-' _ "$SKWD_PLASMA_NVR"
-
-# Qt searches ~/.local/lib64/qml for QML modules only if it is on the import
-# path, and nothing puts it there by default, so plasmashell would fail to
-# resolve `import org.skwd.wallpaper` and draw an empty wallpaper with no
-# visible error. startplasma sources every file in this directory at session
-# start, which is why the installer tells you to log out rather than start the
-# unit by hand. Harmless if some other package already exports the same path;
-# a duplicate entry costs nothing.
-info "Putting ~/.local/lib64/qml on the session QML import path"
-mkdir -p "$HOME/.config/plasma-workspace/env"
-cat > "$HOME/.config/plasma-workspace/env/skwd-wall-v2-kit.sh" <<'ENVSH'
-# Written by skwd-wall-v2-kit: lets plasmashell find the Skwd Paper wallpaper
-# plugin's QML module in ~/.local/lib64/qml. Takes effect at the next login.
-export QML2_IMPORT_PATH="${HOME}/.local/lib64/qml${QML2_IMPORT_PATH:+:$QML2_IMPORT_PATH}"
-export QML_IMPORT_PATH="${HOME}/.local/lib64/qml${QML_IMPORT_PATH:+:$QML_IMPORT_PATH}"
-ENVSH
-chmod 644 "$HOME/.config/plasma-workspace/env/skwd-wall-v2-kit.sh"
-
-cat > "$HOME/.local/bin/skwd-paper-v2" <<'WRAP'
-#!/bin/sh
-set -eu
-paper_root="$HOME/.local"
-paper_lib="$paper_root/lib/skwd-paper"
-if [ -n "${LD_LIBRARY_PATH:-}" ]; then
-    export LD_LIBRARY_PATH="$paper_lib:$LD_LIBRARY_PATH"
-else
-    export LD_LIBRARY_PATH="$paper_lib"
-fi
-exec "$paper_root/libexec/skwd-paper-v2" "$@"
-WRAP
-chmod +x "$HOME/.local/bin/skwd-paper-v2"
-
 info "Installing host-side scripts to ~/.local/bin and ~/.local/lib"
+mkdir -p "$HOME/.local/bin" "$HOME/.local/lib/skwd-wall-v2"
 install -m 755 "$KIT/bin/skwd-wall-v2-session" "$HOME/.local/bin/skwd-wall-v2-session"
 install -m 755 "$KIT/bin/skwd-plasma-scheme"   "$HOME/.local/bin/skwd-plasma-scheme"
 install -m 755 "$KIT/bin/skwd-plasma-surfaces" "$HOME/.local/bin/skwd-plasma-surfaces"
 install -m 755 "$KIT/bin/skwd-theme"           "$HOME/.local/bin/skwd-theme"
-mkdir -p "$HOME/.local/lib/skwd-wall-v2"
 install -m 644 "$KIT/lib/theme-lib.sh"       "$HOME/.local/lib/skwd-wall-v2/theme-lib.sh"
 install -m 755 "$KIT/lib/check-contrast.py"  "$HOME/.local/lib/skwd-wall-v2/check-contrast.py"
 
@@ -264,63 +101,27 @@ else
     fi
 fi
 
-info "Installing the picker launcher"
-# The picker GUI runs inside the container, so its own .desktop entry is only
-# in the container's application database and never reaches the host app
-# launcher, which is where the next-steps output below tells you to look.
-#
-# Written by hand rather than with `distrobox-export --app`: because $HOME is
-# shared with the container, that command's substring match over both the
-# container's and the host's desktop databases picks up every host file whose
-# Exec or Name happens to contain skwd-wall-v2, including the ones it wrote on
-# a previous run. Observed on 2026-09-21: one export produced three launchers
-# and copied stray icons into two unrelated icon themes. One fixed filename
-# here keeps a re-install idempotent.
-if [ -f "$HOME/.local/share/icons/hicolor/scalable/apps/skwd-wall-v2.svg" ]; then
-    PICKER_ICON="skwd-wall-v2"
-else
-    PICKER_ICON="preferences-desktop-wallpaper"
-fi
-DISTROBOX_BIN="$(command -v distrobox)"
-cat > "$HOME/.local/share/applications/skwd-wall-v2-kit.desktop" <<EOF
-[Desktop Entry]
-Type=Application
-Name=skwd-wall v2
-GenericName=Wallpaper Picker
-Comment=Browse and apply image, video, and Wallpaper Engine wallpapers
-Exec=$DISTROBOX_BIN enter -n $BOX -- skwd-wall-v2
-Icon=$PICKER_ICON
-Terminal=false
-Categories=Graphics;
-Keywords=wallpaper;background;desktop;
-StartupNotify=false
-StartupWMClass=skwd-wall-v2
-EOF
-chmod 644 "$HOME/.local/share/applications/skwd-wall-v2-kit.desktop"
-command -v update-desktop-database >/dev/null 2>&1 \
-    && update-desktop-database "$HOME/.local/share/applications" >/dev/null 2>&1 || true
-
-info "Installing the systemd user unit"
+info "Installing the login theme-restore unit"
 mkdir -p "$HOME/.config/systemd/user"
-install -m 644 "$KIT/systemd/skwd-wall-v2.service" "$HOME/.config/systemd/user/skwd-wall-v2.service"
+# The unit this kit used to install started skwd-walld itself; skwd-bazzite's
+# skwd-walld.service does that now, and two units starting it race.
+if [ -f "$HOME/.config/systemd/user/skwd-wall-v2.service" ]; then
+    systemctl --user disable skwd-wall-v2.service >/dev/null 2>&1 || true
+    rm -f "$HOME/.config/systemd/user/skwd-wall-v2.service"
+fi
+install -m 644 "$KIT/systemd/skwd-wall-v2-theme.service" "$HOME/.config/systemd/user/skwd-wall-v2-theme.service"
 systemctl --user daemon-reload
-systemctl --user enable skwd-wall-v2.service
+systemctl --user enable skwd-wall-v2-theme.service
 
 echo
 info "Done."
 cat <<EOF
 
 Next steps:
-  1. Log out and back in. This is required, not a suggestion: it exercises
-     the same graphical-session.target path the unit runs on, and it is when
-     Plasma picks up the QML import path the wallpaper plugin needs.
-  2. Drop some wallpapers in ~/Pictures/Wallpapers, then open the
-     'skwd-wall v2' picker from your app launcher to browse and apply one.
-     If the desktop doesn't change, set the wallpaper type to 'Skwd Paper'
-     once in Desktop settings (right-click the desktop).
+  1. Log out and back in. The theme restore runs on graphical-session.target,
+     right after skwd-bazzite's skwd-walld.service.
+  2. Open the 'skwd-wall v2' picker from your app launcher and apply a
+     wallpaper.
   3. Run:  skwd-theme current
            skwd-theme validate
-
-See docs/troubleshooting.md if a theme apply doesn't propagate everywhere,
-or if logout takes a moment the first time.
 EOF

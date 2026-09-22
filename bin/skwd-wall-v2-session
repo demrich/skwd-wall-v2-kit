@@ -1,72 +1,28 @@
 #!/usr/bin/bash
-# Start skwd-walld for the graphical session and restore the theme.
+# Re-apply the theme after skwd-walld's startup restore, at login.
 #
-# Two skwd-wall v2 (1.0.0-beta.11) gaps this works around, both candidates
+# skwd-bazzite's skwd-walld.service starts the daemon. This runs after it, for
+# two skwd-wall v2 gaps (seen from beta.11 through beta.18), both candidates
 # for an upstream fix:
 #
 #  1. walld's startup restore re-applies the wallpaper but runs no theme
 #     steps at all (no "theme apply", no integrations, no post-processing),
-#     so a fresh login comes up with the previous session's colours. The v1
-#     daemon had the same defect and needed the same kind of login-restore
-#     workaround.
+#     so a fresh login comes up with the previous session's colours.
 #  2. "skwd-helm retheme" answers "no current wallpaper to retheme" after a
 #     restore -- the restore path never populates the in-memory current
 #     wallpaper that retheme reads. So the kick has to be an explicit apply
 #     of the path that "skwd-helm current" reports.
 #
-#  3. Two "distrobox enter" calls issued back-to-back while the container is
-#     still cold each tail their own "podman logs -f", waiting for the
-#     container's one-time ready line. If the first entry already consumed
-#     that line before the second starts watching, the second waits forever.
-#     ExecStart then never returns, so the start job blocks the stop
-#     transaction for graphical-session.target at the next logout. Warming
-#     the container with one blocking call before any backgrounded or looped
-#     entry avoids the race; the timeout below is the backstop, and the unit
-#     caps the whole thing at TimeoutStartSec.
-#
-# Stop must be fast. skwd-daemon (v1) held plasma-workspace teardown open for
-# ~13 s on stop and that race window is the documented cause of this host's
-# logout/login freeze. Kill walld directly rather than tearing down the
-# Distrobox, and let the unit cap it at TimeoutStopSec.
+# Every container entry is bounded (see skwd-bazzite's box() for the cold
+# container race that makes that necessary); the container is already warm by
+# the time this runs, because skwd-walld.service has entered it.
 set -u
 
-BOX="${SKWD_WALL_V2_BOX:-skwd-wall-v2-fedora}"
-box() { timeout 20 /usr/bin/distrobox enter -n "$BOX" -- "$@"; }
-
-case "${1:-start}" in
-stop)
-    pkill -f '^/usr/bin/skwd-walld' 2>/dev/null
-    exit 0
-    ;;
-start) ;;
-*) echo "usage: $0 [start|stop]" >&2; exit 2 ;;
-esac
-
-# Plasma must own the desktop before the wallpaper plugin will accept an apply.
-for _ in $(seq 1 60); do
-    qdbus-qt6 org.kde.plasmashell >/dev/null 2>&1 && break
-    sleep 1
-done
-
-# Always clear a stale daemon before starting, rather than reusing whatever is
-# already up. walld runs in the container's cgroup, so when ExecStart fails
-# systemd kills the host-side podman wrapper and the daemon itself survives --
-# and it is still holding the config it was started with. Reusing it silently
-# ignores every later edit to config.json, which looks exactly like the config
-# not working. Restarting the unit is how config changes are meant to land.
-pkill -f '^/usr/bin/skwd-walld' 2>/dev/null && sleep 1
-
-# Gap 3: warm the container synchronously before the backgrounded walld entry
-# and the polling loops below, so none of them races a cold container start.
-box true >/dev/null 2>&1
-
-box /usr/bin/skwd-walld &
-
-# Wait for the socket, then for the restore to publish a current wallpaper.
-for _ in $(seq 1 60); do
-    box /usr/bin/skwd-helm current >/dev/null 2>&1 && break
-    sleep 1
-done
+CONF="${XDG_CONFIG_HOME:-$HOME/.config}/skwd-bazzite/config"
+BOX="${SKWD_WALL_V2_BOX:-$(sed -n 's/^box=//p' "$CONF" 2>/dev/null | head -1)}"
+BOX="${BOX:-skwd-wall-v2-fedora}"
+DISTROBOX="$(command -v distrobox || echo /usr/bin/distrobox)"
+box() { timeout 20 "$DISTROBOX" enter -T -n "$BOX" -- "$@"; }
 
 CUR=""
 for _ in $(seq 1 30); do

@@ -63,7 +63,7 @@ outputs() {
 cmd_current() {
     local cur t scheme policy mode wr wg wb
     if ! cur="$(current_path)"; then
-        echo "no current wallpaper (skwd-helm current failed - is skwd-wall-v2.service running?)"
+        echo "no current wallpaper (skwd-helm current failed - is skwd-walld.service running?)"
         cur=""
     else
         t="$(profile_name "$cur" || true)"

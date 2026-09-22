@@ -46,16 +46,15 @@ machine:
 2. The `SkwdWallA`/`SkwdWallB` A/B flip in `skwd-plasma-scheme` (re-applying
    the same wallpaper still repaints, since plasma-apply-colorscheme refuses
    a scheme that's already current by name).
-3. The renderer binaries (`skwd-paper-v2`, `skwd-wall-still`, `skwd-wall-vk`)
-   actually produce a wallpaper on host GPU/Wayland.
-4. Logout/login timing: enable the unit, log out, log back in, confirm no
+3. Logout/login timing: enable the unit, log out, log back in, confirm no
    freeze and that the previous theme is restored (see
    [troubleshooting.md](troubleshooting.md) for what a regression here looks
    like).
 
 ## Adding a stub or a fixture
 
-- `tests/stubs/distrobox` and `tests/stubs/systemctl` fake just enough of
+- `tests/stubs/distrobox`, `tests/stubs/systemctl` and
+  `tests/stubs/skwd-bazzite` fake just enough of
   each command's behavior for `install.sh`/`uninstall.sh`/`skwd-theme` to
   run against a throwaway `$HOME`. They're intentionally not a full
   simulation - extend them only when a real code path needs a new case.

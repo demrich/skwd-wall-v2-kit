@@ -1,14 +1,19 @@
 # Troubleshooting
 
-Pinned to **skwd-wall v2 1.0.0-beta.18**; the workarounds below were first
-verified against beta.11 and re-checked against the beta.12-beta.18 release
-notes on 2026-09-21, which never claim either bug fixed. If a future upstream
-release fixes one, delete the corresponding workaround from this kit rather
-than keeping both; check the comment at the top of the affected script.
+skwd-wall v2 itself (the container, the packages, the renderers and Plasma
+wallpaper plugin on the host, `skwd-walld.service`, and updates) is managed by
+skwd-bazzite; start with `skwd-bazzite status` for anything in that list.
+This page covers the theming layer this kit adds.
 
-## Why does this kit run its own login script instead of just enabling skwd-walld?
+The login workaround below was first verified against beta.11 and re-checked
+against the beta.12-beta.18 release notes on 2026-09-21, which never claim
+either bug fixed. If a future upstream release fixes one, delete the
+workaround rather than keeping both; check the comment at the top of
+`bin/skwd-wall-v2-session`.
 
-Two upstream beta.11 gaps, both reproducible:
+## Why does this kit re-apply the theme at login?
+
+Two upstream gaps, both reproducible:
 
 1. **skwd-walld's own startup restore never runs theme steps.** It re-applies
    the wallpaper on login, but no integrations, no post-processing, so you
@@ -17,59 +22,39 @@ Two upstream beta.11 gaps, both reproducible:
    current wallpaper to retheme" right after a restore, because the restore
    path never populates the in-memory current wallpaper.
 
-`bin/skwd-wall-v2-session` (run by `systemd/skwd-wall-v2.service` on login)
-works around both: it starts `skwd-walld`, waits for it to report a current
-wallpaper, then does an explicit `skwd-helm apply <that wallpaper>`. It has
-to be `apply`, not `retheme`, because `apply` is what actually runs
+`bin/skwd-wall-v2-session` (run by `skwd-wall-v2-theme.service` right after
+`skwd-walld.service`) works around both: it waits for walld to report a
+current wallpaper, then does an explicit `skwd-helm apply <that wallpaper>`.
+It has to be `apply`, not `retheme`, because `apply` is what actually runs
 integrations and post-processing.
+
+It is its own unit rather than a step inside `skwd-walld.service`, so a slow
+restore can only time out itself, never the daemon.
 
 ## Logout takes a moment, or the whole session freezes on logout/login
 
-The older skwd daemon design held `plasma-workspace.target` teardown open
-for several seconds on stop, and a `PartOf=graphical-session.target` unit
-that's slow to stop can race the *next* login's start transaction, freezing
-the session. `systemd/skwd-wall-v2.service` fixes this with a fast,
-targeted `pkill` on stop, capped at `TimeoutStopSec=5s`.
+A `PartOf=graphical-session.target` unit that is slow to stop, or whose start
+job is still pending, can race the *next* login's start transaction and
+freeze the session. Both units involved are bounded for that reason
+(`TimeoutStopSec=5s`; `TimeoutStartSec` 30s for walld, 60s for the theme
+restore), and walld is stopped with a targeted `pkill`, never a Distrobox
+teardown.
 
-Replacing that stop action with a Distrobox teardown brings the freeze
-back (teardown is too slow), and so does raising `TimeoutStopSec` or
-enabling a second unit that also tries to own the theme restore.
-
-If `install.sh` refused to run because it found `skwd-daemon.service`
-enabled, that's this exact failure mode: disable that unit first
-(`systemctl --user disable --now skwd-daemon.service`).
+The unit this kit used to install, `skwd-wall-v2.service`, also started
+walld. `install.sh` disables and removes it, because two units starting walld
+is the same race. If `install.sh` refused to run because it found
+`skwd-daemon.service` enabled, that's this exact failure mode too: disable
+that unit first (`systemctl --user disable --now skwd-daemon.service`).
 
 ## The picker applies a wallpaper but the desktop doesn't change
 
-The Plasma wallpaper plugin is missing, stale, or not selected. Plasma draws
-the background itself, so `skwd-paper-plasma` is what actually puts a Skwd
-wallpaper on screen; the daemon only tells it what to show. `install.sh`
-copies both of its halves onto the host, because plasmashell loads them and
-cannot see into the container:
-
-- `~/.local/share/plasma/wallpapers/org.skwd.wall.plasma` - the wallpaper
-  package, whose `main.qml` does `import org.skwd.wallpaper`.
-- `~/.local/lib64/qml/org/skwd/wallpaper` - the native QML module that import
-  resolves to.
-
-Three ways this goes wrong:
-
-1. **Not on the QML import path.** Qt does not search `~/.local/lib64/qml`
-   unless something puts it there, and a failed import shows up as a blank
-   desktop rather than an error. `install.sh` writes
-   `~/.config/plasma-workspace/env/skwd-wall-v2-kit.sh` to export it, and
-   `startplasma` only reads that directory at session start, so this one
-   always needs a logout. Check with `echo $QML_IMPORT_PATH` in a fresh
-   session.
-2. **Half-updated.** Both halves come from the same package build. Copying
-   one without the other (for example bumping the pinned packages and only
-   re-copying the renderers) gives a blank desktop for the same reason.
-   Re-running `install.sh` copies both.
-3. **Not selected.** The plugin being installed doesn't make it the active
-   wallpaper type. Right-click the desktop, and set the wallpaper type to
-   `Skwd Paper`. Confirm with
-   `grep wallpaperplugin ~/.config/plasma-org.kde.plasma.desktop-appletsrc`,
-   which should show `org.skwd.wall.plasma` for your desktop containments.
+The Plasma wallpaper plugin is missing, stale, or not selected. Run
+`skwd-bazzite status`: it shows the installed plugin version and whether a
+newer one is waiting. The plugin takes effect at the next login. If it is
+installed, right-click the desktop and set the wallpaper type to
+`Skwd Paper`; confirm with
+`grep wallpaperplugin ~/.config/plasma-org.kde.plasma.desktop-appletsrc`,
+which should show `org.skwd.wall.plasma` for your desktop containments.
 
 ## Wallpaper changes but colors don't
 
@@ -80,44 +65,27 @@ ran at all. Common causes:
 - `theme.policy` in `config.json` is `fixed` instead of `wallpaper`.
 - `integrations` is empty, or every integration's `output` path is wrong.
 - `timed out waiting for ...SkwdMatugen.colors` in the log means no render
-  happened at all: check `theme.policy` again, and that
-  `skwd-wall-v2.service` is actually running (`systemctl --user status
-  skwd-wall-v2.service`).
+  happened at all: check `theme.policy` again, and that walld is running
+  (`systemctl --user status skwd-walld.service`).
 
-## `skwd-helm` commands hang or fail with "no such container"
+## Colors are right after a wallpaper change but wrong after login
 
-The container isn't running or was never assembled. Check
-`distrobox enter -n skwd-wall-v2-fedora -- skwd-helm current` directly. If
-that alone hangs or errors, the problem is the container/package install,
-not this kit's scripts. Re-run `./install.sh`, it's idempotent.
+The login restore did not run or failed:
+`journalctl --user -b -u skwd-wall-v2-theme.service`. "no wallpaper to
+restore" means walld had not published a current wallpaper within 30s.
 
 ## `Plasma wallpaper script exited with signal: 13 (SIGPIPE)`
 
 Plasma's wallpaper containment got wedged, usually after a bad `paths.*`
 value in `config.json` (they must be **absolute host paths**; `~` does not
-expand there, see comments in `config/config.json.tmpl`). Fix the path,
-then: `systemctl --user stop skwd-wall-v2.service`,
-`pkill -f '^/usr/bin/skwd-walld'`, `systemctl --user start
-skwd-wall-v2.service`.
+expand there, see comments in `config/config.json.tmpl`). skwd-bazzite also
+passes the same host paths to walld through the environment, which overrides
+`paths.*`. Fix the path, then `systemctl --user restart skwd-walld.service`.
 
 ## Config edits do nothing
 
 `skwd-walld` reads `config.json` at its own startup, inside the container.
-Restart the unit to pick up an edit: `systemctl --user restart
-skwd-wall-v2.service`.
-
-## Renderer binary doesn't run after install (glibc / version mismatch)
-
-`install.sh` copies the wallpaper renderer binaries out of the Fedora 44
-container onto your host filesystem, because rendering needs direct host
-GPU/Wayland access the container can't provide. Those binaries are linked
-against Fedora 44's glibc. If your **host** is an older Fedora release than
-the container's base image, they may fail to run. Fedora Atomic hosts track
-current releases closely so this is unlikely in practice, but if
-`skwd-paper-v2`/`skwd-wall-still`/`skwd-wall-vk` fail with a glibc version
-error, your host is older than Fedora 44. Update it, or change the `image=`
-line in `distrobox-assemble.ini` to match your host's Fedora version (if the
-Copr repo publishes packages for it) before re-running `install.sh`.
+Restart it to pick up an edit: `systemctl --user restart skwd-walld.service`.
 
 ## Known limitations, not bugs
 
@@ -130,17 +98,11 @@ Copr repo publishes packages for it) before re-running `install.sh`.
 - **Custom window border/decoration styling** isn't part of this kit at
   all; it's purely a look-and-feel choice, unrelated to theme switching
   working.
-- **Lock screen wallpaper sync failing with `could not synchronize KDE
-  Plasma lock-screen wallpaper`** isn't an upstream bug: `skwd-walld` shells
-  out to `kwriteconfig6` from inside the Distrobox container to write
-  `kscreenlockerrc`, and the bare `fedora:44` base image this kit builds
-  doesn't have it. `install.sh` installs `kf6-kconfig` for this now; if
-  you're still seeing the warning, run `distrobox enter <box> -- sudo dnf
-  install kf6-kconfig` (or re-run `install.sh`) and restart
-  `skwd-wall-v2.service`. This writes `plasma.lockScreen` (see
+- **Lock screen wallpaper sync** writes `plasma.lockScreen` (see
   `config/config.json.tmpl`) straight into your live `kscreenlockerrc`,
   overwriting `WallpaperPlugin` - if you use a different lock-screen
   wallpaper plugin, set `plasma.lockScreen.mode` to `"off"` instead.
+  skwd-bazzite installs `kwriteconfig6` in the container for it.
 - Bazzite/Kinoite's Breeze package sometimes ships without the default
   Alt+Tab window switcher (`kwriteconfig6 --file kwinrc --group TabBox --key
   LayoutName thumbnail_grid` fixes it). Unrelated to this kit, just a common
