@@ -58,15 +58,23 @@ fi
 # An unversioned `dnf install` on an existing box would silently upgrade past
 # the version this kit was verified against.
 #
-# Bumped beta.11 -> beta.17 on 2026-09-20. The login workaround is retained:
-# no release note between beta.12 and beta.17 claims the startup restore now
+# Bumped beta.17 -> beta.18 on 2026-09-21. The login workaround is retained:
+# no release note between beta.12 and beta.18 claims the startup restore now
 # runs theme steps, nor that `skwd-helm retheme` can see a restored wallpaper.
-# Re-test those two directly before dropping it.
+# beta.18-4's only changelog entry is a packaging change (four coordinated
+# native packages, Fedora's libshaderc-devel provider). Re-test those two
+# directly before dropping the workaround.
+#
+# The Copr repo keeps only the newest build of each package, so a pin stops
+# resolving as soon as upstream supersedes it and install.sh then fails at the
+# dnf step. beta.17-4 became unresolvable the same day beta.18-4 landed. Bump
+# this block promptly rather than treating the pin as indefinitely valid; the
+# copr-pins workflow is what catches it.
 SKWD_NVRS=(
-    skwd-wall-v2-1.0.0~beta.17-4.fc44
-    skwd-paper-1.0.0~beta.17-4.fc44
-    skwd-deck-1.0.0~beta.17-4.fc44
-    skwd-lens-1.0.0~beta.17-4.fc44
+    skwd-wall-v2-1.0.0~beta.18-4.fc44
+    skwd-paper-1.0.0~beta.18-4.fc44
+    skwd-deck-1.0.0~beta.18-4.fc44
+    skwd-lens-1.0.0~beta.18-4.fc44
     skwd-lens-model-1.0.0-1.fc44
 )
 
