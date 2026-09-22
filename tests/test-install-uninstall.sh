@@ -27,6 +27,9 @@ assert_file "$HOME/.local/bin/skwd-paper-v2"
 assert_file "$HOME/.local/libexec/skwd-wall-still"
 assert_file "$HOME/.local/libexec/skwd-wall-vk"
 assert_file "$HOME/.config/systemd/user/skwd-wall-v2.service"
+# Without this the picker GUI stays invisible to the host app launcher, which
+# is exactly where install.sh and the README tell you to look for it.
+assert_file "$HOME/.local/share/applications/skwd-wall-v2-kit.desktop"
 CONF="$HOME/.config/skwd-wall-v2/config.json"
 assert_file "$CONF"
 
@@ -50,6 +53,15 @@ grep -q '"marker": true' "$CONF" || fail "re-install clobbered an existing confi
 grep -q 'marker-edit' "$TMPL" || fail "re-install clobbered an existing matugen template"
 pass "re-running install.sh --yes is idempotent and leaves existing config.json and templates alone"
 
+# A re-install must not accumulate launchers: the fixed filename is the whole
+# reason install.sh writes this by hand instead of calling distrobox-export.
+n_desktop="$(find "$HOME/.local/share/applications" -maxdepth 1 -name '*skwd-wall-v2*.desktop' | wc -l)"
+assert_eq "$n_desktop" "1" "picker launchers present after a re-install"
+grep -q 'enter -n skwd-test-box -- skwd-wall-v2' \
+    "$HOME/.local/share/applications/skwd-wall-v2-kit.desktop" \
+    || fail "picker launcher Exec does not target the configured box"
+pass "the picker launcher is written once and points at the configured box"
+
 if ! ./uninstall.sh --purge -y >"$tmp/uninstall.log" 2>&1; then
     cat "$tmp/uninstall.log" >&2
     fail "uninstall.sh --purge -y exited non-zero"
@@ -60,6 +72,7 @@ for f in skwd-wall-v2-session skwd-plasma-scheme skwd-plasma-surfaces skwd-theme
 done
 assert_missing "$HOME/.local/lib/skwd-wall-v2"
 assert_missing "$HOME/.config/systemd/user/skwd-wall-v2.service"
+assert_missing "$HOME/.local/share/applications/skwd-wall-v2-kit.desktop"
 assert_missing "$HOME/.config/skwd-wall-v2"
 
 pass "uninstall.sh --purge -y removes everything install.sh laid down"

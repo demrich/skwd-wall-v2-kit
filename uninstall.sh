@@ -25,6 +25,12 @@ systemctl --user disable --now skwd-wall-v2.service 2>/dev/null || true
 rm -f "$HOME/.config/systemd/user/skwd-wall-v2.service"
 systemctl --user daemon-reload
 
+info "Removing the picker launcher"
+rm -f "$HOME/.local/share/applications/skwd-wall-v2-kit.desktop" \
+      "$HOME/.local/share/icons/hicolor/scalable/apps/skwd-wall-v2.svg"
+command -v update-desktop-database >/dev/null 2>&1 \
+    && update-desktop-database "$HOME/.local/share/applications" >/dev/null 2>&1 || true
+
 info "Removing installed scripts"
 rm -f "$HOME/.local/bin/skwd-wall-v2-session" \
       "$HOME/.local/bin/skwd-plasma-scheme" \

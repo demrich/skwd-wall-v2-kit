@@ -119,7 +119,8 @@ distrobox enter -n "$BOX" -- command -v skwd-helm >/dev/null 2>&1 \
 # of the renderer. Since Distrobox shares $HOME with the container, copying
 # them from inside the container writes straight to the host's $HOME.
 info "Copying renderer binaries out to the host (\$HOME is shared with the container)"
-mkdir -p "$HOME/.local/libexec" "$HOME/.local/lib/skwd-paper" "$HOME/.local/bin"
+mkdir -p "$HOME/.local/libexec" "$HOME/.local/lib/skwd-paper" "$HOME/.local/bin" \
+         "$HOME/.local/share/icons/hicolor/scalable/apps" "$HOME/.local/share/applications"
 distrobox enter -n "$BOX" -- bash -c '
     set -e
     cp -f /usr/bin/skwd-paper-v2   "$HOME/.local/libexec/skwd-paper-v2"
@@ -128,6 +129,10 @@ distrobox enter -n "$BOX" -- bash -c '
     # Whole directory, not just *.so*: skwd-paper also ships a helper binary
     # (skwd-paper-tinier) alongside the ffmpeg libs.
     cp -rf /usr/lib/skwd-paper/. "$HOME/.local/lib/skwd-paper/" 2>/dev/null || true
+    # For the host launcher written further down. Not fatal if upstream stops
+    # shipping it; the launcher falls back to a stock Plasma icon name.
+    cp -f /usr/share/icons/hicolor/scalable/apps/skwd-wall-v2.svg \
+        "$HOME/.local/share/icons/hicolor/scalable/apps/skwd-wall-v2.svg" 2>/dev/null || true
 '
 
 cat > "$HOME/.local/bin/skwd-paper-v2" <<'WRAP'
@@ -188,6 +193,42 @@ else
             ]' "$CONF" > "$CONF.tmp" && mv "$CONF.tmp" "$CONF"
     fi
 fi
+
+info "Installing the picker launcher"
+# The picker GUI runs inside the container, so its own .desktop entry is only
+# in the container's application database and never reaches the host app
+# launcher, which is where the next-steps output below tells you to look.
+#
+# Written by hand rather than with `distrobox-export --app`: because $HOME is
+# shared with the container, that command's substring match over both the
+# container's and the host's desktop databases picks up every host file whose
+# Exec or Name happens to contain skwd-wall-v2, including the ones it wrote on
+# a previous run. Observed on 2026-09-21: one export produced three launchers
+# and copied stray icons into two unrelated icon themes. One fixed filename
+# here keeps a re-install idempotent.
+if [ -f "$HOME/.local/share/icons/hicolor/scalable/apps/skwd-wall-v2.svg" ]; then
+    PICKER_ICON="skwd-wall-v2"
+else
+    PICKER_ICON="preferences-desktop-wallpaper"
+fi
+DISTROBOX_BIN="$(command -v distrobox)"
+cat > "$HOME/.local/share/applications/skwd-wall-v2-kit.desktop" <<EOF
+[Desktop Entry]
+Type=Application
+Name=skwd-wall v2
+GenericName=Wallpaper Picker
+Comment=Browse and apply image, video, and Wallpaper Engine wallpapers
+Exec=$DISTROBOX_BIN enter -n $BOX -- skwd-wall-v2
+Icon=$PICKER_ICON
+Terminal=false
+Categories=Graphics;
+Keywords=wallpaper;background;desktop;
+StartupNotify=false
+StartupWMClass=skwd-wall-v2
+EOF
+chmod 644 "$HOME/.local/share/applications/skwd-wall-v2-kit.desktop"
+command -v update-desktop-database >/dev/null 2>&1 \
+    && update-desktop-database "$HOME/.local/share/applications" >/dev/null 2>&1 || true
 
 info "Installing the systemd user unit"
 mkdir -p "$HOME/.config/systemd/user"

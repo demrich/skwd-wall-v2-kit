@@ -20,13 +20,26 @@ on purpose; none of that is needed for theme switching to work.
 - [Distrobox](https://distrobox.it/)
 - `jq`, `python3`
 
+The wallpaper renderers are copied out of the container and run directly on
+the host for GPU access, so the host also needs their shared libraries at
+runtime: `libshaderc`, `spirv-tools-libs`, `libva`, `libdav1d`, `libdrm`,
+`libwayland-client`. Bazzite ships all of these in its base image (verified
+on `bazzite-nvidia-open` 44.20260921, none of them layered). A leaner host,
+including plain Kinoite or a minimal Fedora install, may be missing
+`libshaderc`/`spirv-tools-libs` in particular, and `install.sh` does not
+check for them, so a gap shows up later as the renderer failing to start
+rather than as an install error. The ffmpeg libraries skwd-paper needs are
+bundled by the package itself and copied out alongside the binaries, so
+those never have to be present on the host.
+
 Your host distro doesn't matter: `install.sh` always builds a `fedora:44`
 Distrobox container (see `distrobox-assemble.ini`) and does the Copr
 enable/install inside it, so this works the same on Bazzite, Kinoite, plain
 Fedora, or any other Linux with Plasma 6 + Distrobox. Nothing here is
 Bazzite-specific, and nothing on the host itself needs to be Fedora - only
-Plasma 6 (for the D-Bus/`kwriteconfig6` integration) and Distrobox (for
-running on a read-only `/usr`, or any host at all).
+Plasma 6 (for the D-Bus/`kwriteconfig6` integration), Distrobox (for
+running on a read-only `/usr`, or any host at all), and the renderer
+libraries listed above.
 
 ## Install
 
@@ -43,7 +56,9 @@ tested, not a manual `systemctl --user start`.
 Add wallpapers to `~/Pictures/Wallpapers` (or drop them in from a file
 manager or browser at any time, skwd-wall v2 watches that folder live), then
 open the `skwd-wall v2` picker from your app launcher to browse and apply
-one.
+one. The picker runs inside the container, so `install.sh` writes a host
+launcher for it (`~/.local/share/applications/skwd-wall-v2-kit.desktop`) that
+enters the container and starts it; `uninstall.sh` removes that again.
 
 ```bash
 skwd-theme current           # what's applied, and whether every integration caught up
