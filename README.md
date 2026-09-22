@@ -19,7 +19,15 @@ What's here is the Distrobox definition and the KDE Plasma integration layer
 on top of it: a login/logout service that survives skwd-walld's current
 startup quirks, two hooks that push generated colors into places
 `kdeglobals` doesn't reach (notifications, the window ring), and a `skwd-theme`
-CLI to inspect and validate what's currently applied. Personal cosmetic
+CLI to inspect and validate what's currently applied.
+
+The split between host and container is not a matter of taste. Plasma owns
+the background layer, so upstream ships `skwd-paper-plasma`, a Plasma
+wallpaper plugin that plasmashell loads and that spawns the renderer binaries
+itself. Anything plasmashell loads or executes has to be on the host, which
+is why `install.sh` copies the plugin, its QML module, and the renderers out
+of the container, and why `paths.*` in `config.json` are absolute host paths.
+Only the daemon, the picker, and the template rendering stay inside. Personal cosmetic
 extras (custom window decorations, a compiled pager, widgets) are left out
 on purpose; none of that is needed for theme switching to work.
 
@@ -56,9 +64,14 @@ cd skwd-wall-v2-kit
 ./install.sh
 ```
 
-Then **log out and back in**. The theming service runs on
-`graphical-session.target`, and the login path is what's actually been
-tested, not a manual `systemctl --user start`.
+Then **log out and back in**. Two things need it: the theming service runs on
+`graphical-session.target`, and the login path is what's actually been tested
+rather than a manual `systemctl --user start`; and Plasma only picks up the
+QML import path for the wallpaper plugin when `startplasma` sources
+`~/.config/plasma-workspace/env/` at session start.
+
+If the desktop still doesn't change when you apply a wallpaper, right-click
+the desktop and set the wallpaper type to **Skwd Paper** once.
 
 Add wallpapers to `~/Pictures/Wallpapers` (or drop them in from a file
 manager or browser at any time, skwd-wall v2 watches that folder live), then

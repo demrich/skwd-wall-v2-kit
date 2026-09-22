@@ -39,6 +39,38 @@ If `install.sh` refused to run because it found `skwd-daemon.service`
 enabled, that's this exact failure mode: disable that unit first
 (`systemctl --user disable --now skwd-daemon.service`).
 
+## The picker applies a wallpaper but the desktop doesn't change
+
+The Plasma wallpaper plugin is missing, stale, or not selected. Plasma draws
+the background itself, so `skwd-paper-plasma` is what actually puts a Skwd
+wallpaper on screen; the daemon only tells it what to show. `install.sh`
+copies both of its halves onto the host, because plasmashell loads them and
+cannot see into the container:
+
+- `~/.local/share/plasma/wallpapers/org.skwd.wall.plasma` - the wallpaper
+  package, whose `main.qml` does `import org.skwd.wallpaper`.
+- `~/.local/lib64/qml/org/skwd/wallpaper` - the native QML module that import
+  resolves to.
+
+Three ways this goes wrong:
+
+1. **Not on the QML import path.** Qt does not search `~/.local/lib64/qml`
+   unless something puts it there, and a failed import shows up as a blank
+   desktop rather than an error. `install.sh` writes
+   `~/.config/plasma-workspace/env/skwd-wall-v2-kit.sh` to export it, and
+   `startplasma` only reads that directory at session start, so this one
+   always needs a logout. Check with `echo $QML_IMPORT_PATH` in a fresh
+   session.
+2. **Half-updated.** Both halves come from the same package build. Copying
+   one without the other (for example bumping the pinned packages and only
+   re-copying the renderers) gives a blank desktop for the same reason.
+   Re-running `install.sh` copies both.
+3. **Not selected.** The plugin being installed doesn't make it the active
+   wallpaper type. Right-click the desktop, and set the wallpaper type to
+   `Skwd Paper`. Confirm with
+   `grep wallpaperplugin ~/.config/plasma-org.kde.plasma.desktop-appletsrc`,
+   which should show `org.skwd.wall.plasma` for your desktop containments.
+
 ## Wallpaper changes but colors don't
 
 Check `~/.cache/skwd-wall-v2/hooks.log`. Each post-processing hook

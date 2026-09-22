@@ -1,8 +1,16 @@
 #!/usr/bin/bash
 # Apply the colour scheme skwd-wall v2 just rendered to the live Plasma session.
 #
-# v2 renders ~/.local/share/color-schemes/SkwdMatugen.colors but never
-# applies it: nothing in skwd-walld shells out to plasma-apply-colorscheme.
+# v2 renders ~/.local/share/color-schemes/SkwdMatugen.colors and, since
+# beta.18, has its own code to apply it: skwd-walld shells out to
+# plasma-apply-colorscheme under QT_QPA_PLATFORM=offscreen and checks the
+# result. That path cannot run here. walld runs in the Distrobox, and
+# plasma-apply-colorscheme is not in it, so the daemon gets as far as
+# "Plasma colour tools are not installed" and stops. Putting the tool in the
+# container means pulling in plasma-workspace, which resolved to 408 packages
+# against fedora:44, for a binary whose whole job is to talk to a Plasma
+# session running on the host. Applying from the host instead is the cheaper
+# half of that trade, so this hook stays even though upstream now has one.
 #
 # plasma-apply-colorscheme also refuses a scheme whose name is already
 # current ("already set as the theme for the current Plasma session") and

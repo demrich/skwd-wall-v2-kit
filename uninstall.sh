@@ -43,6 +43,15 @@ rm -f "$HOME/.local/libexec/skwd-paper-v2" \
       "$HOME/.local/libexec/skwd-wall-vk"
 rm -rf "$HOME/.local/lib/skwd-paper"
 
+# Removing the wallpaper plugin leaves any containment still set to it with no
+# wallpaper at all, so say so rather than letting it look like a crash.
+info "Removing the Plasma wallpaper plugin"
+rm -rf "$HOME/.local/share/plasma/wallpapers/org.skwd.wall.plasma" \
+       "$HOME/.local/lib64/qml/org/skwd/wallpaper"
+rmdir "$HOME/.local/lib64/qml/org/skwd" 2>/dev/null || true
+rm -f "$HOME/.config/plasma-workspace/env/skwd-wall-v2-kit.sh"
+info "Set your desktop's wallpaper type back to something else (Image, ...) at the next login."
+
 if [ "$PURGE" -eq 1 ]; then
     if [ "$ASSUME_YES" -ne 1 ]; then
         if [ ! -t 0 ]; then

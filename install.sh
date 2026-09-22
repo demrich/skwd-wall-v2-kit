@@ -87,6 +87,19 @@ SKWD_NVRS=(
     skwd-lens-model-1.0.0-1.fc44
 )
 
+# Pinned separately, and deliberately not in the list above. skwd-paper-plasma
+# carries its own release number (-1, not -4), because it builds from its own
+# source tarball and does not track the suite's release bumps, so check it by
+# itself when bumping the others.
+#
+# It is also never installed into the container, only downloaded and unpacked
+# there. Its requires include Qt6 Quick, EGL, and (from a spec that leaks its
+# build deps into runtime) cmake and gcc-c++, so `dnf install` resolves to 408
+# packages against fedora:44. Not one of them would ever run: the plugin is
+# loaded by plasmashell on the host, and the container is only a convenient
+# place to reach the Copr repo from.
+SKWD_PLASMA_NVR=skwd-paper-plasma-1.0.0~beta.18-1.fc44.x86_64
+
 box_exists() {
     distrobox list --no-color 2>/dev/null \
         | awk -F'|' 'NR>1{gsub(/^[ \t]+|[ \t]+$/,"",$2); print $2}' \
@@ -122,16 +135,31 @@ distrobox enter -n "$BOX" -- sudo dnf -y install kf6-kconfig >/dev/null \
 distrobox enter -n "$BOX" -- command -v skwd-helm >/dev/null 2>&1 \
     || die "skwd-helm not found inside '$BOX' after install - something upstream changed"
 
-# host-side renderer binaries
-# skwd-walld runs in the container, but wallpaper rendering needs direct
-# host GPU/Wayland access, so config.json's paths.* must point at HOST copies
-# of the renderer. Since Distrobox shares $HOME with the container, copying
-# them from inside the container writes straight to the host's $HOME.
-info "Copying renderer binaries out to the host (\$HOME is shared with the container)"
+# host-side renderer binaries and Plasma wallpaper plugin
+#
+# On Plasma the wallpaper is not drawn by the daemon. skwd-paper-plasma is a
+# Plasma wallpaper plugin, and its main.qml hands a `paper` binary name to a
+# SkwdVideoItem that plasmashell then spawns itself. So the renderers have to
+# exist on the host as plain files plasmashell can execute, and config.json's
+# paths.* must be absolute HOST paths. Container copies are unreachable from
+# plasmashell no matter how the daemon is started.
+#
+# That also means the plugin itself cannot live in the container: plasmashell
+# loads it, so both of its payloads have to end up on the host, the Plasma
+# wallpaper package and the native QML module it imports. The container is
+# used only to fetch and unpack them.
+#
+# Since Distrobox shares $HOME with the container, copying from inside the
+# container writes straight to the host's $HOME.
+info "Copying renderer binaries and the Plasma wallpaper plugin out to the host (\$HOME is shared with the container)"
 mkdir -p "$HOME/.local/libexec" "$HOME/.local/lib/skwd-paper" "$HOME/.local/bin" \
-         "$HOME/.local/share/icons/hicolor/scalable/apps" "$HOME/.local/share/applications"
+         "$HOME/.local/share/icons/hicolor/scalable/apps" "$HOME/.local/share/applications" \
+         "$HOME/.local/share/plasma/wallpapers" "$HOME/.local/lib64/qml/org/skwd"
 distrobox enter -n "$BOX" -- bash -c '
-    set -e
+    # pipefail matters: the plugin is unpacked through a pipe below, and
+    # without it a failed rpm2archive is hidden by tar exiting 0 on no input.
+    set -eo pipefail
+    PLASMA_NVR="$1"
     cp -f /usr/bin/skwd-paper-v2   "$HOME/.local/libexec/skwd-paper-v2"
     cp -f /usr/bin/skwd-wall-still "$HOME/.local/libexec/skwd-wall-still"
     cp -f /usr/bin/skwd-wall-vk    "$HOME/.local/libexec/skwd-wall-vk"
@@ -142,7 +170,40 @@ distrobox enter -n "$BOX" -- bash -c '
     # shipping it; the launcher falls back to a stock Plasma icon name.
     cp -f /usr/share/icons/hicolor/scalable/apps/skwd-wall-v2.svg \
         "$HOME/.local/share/icons/hicolor/scalable/apps/skwd-wall-v2.svg" 2>/dev/null || true
-'
+    # The wallpaper plugin, unpacked rather than installed (see SKWD_PLASMA_NVR
+    # above), then copied out replacing any previous copy of it.
+    #
+    # Both halves come from the same package build and have to move together.
+    # beta.18 main.qml instantiates a SkwdWindowMonitor that only exists in the
+    # matching QML module, and a QML type that will not resolve leaves a blank
+    # desktop rather than an error, so a half-update looks like a crash.
+    tmp="$(mktemp -d)"
+    trap "rm -rf \"$tmp\"" EXIT
+    dnf download -q --setopt=minrate=0 --setopt=timeout=120 \
+        --destdir="$tmp" "$PLASMA_NVR"
+    rpm2archive - < "$tmp"/*.rpm | tar -xz -C "$tmp"
+    cp -rf "$tmp/usr/share/plasma/wallpapers/org.skwd.wall.plasma" \
+        "$HOME/.local/share/plasma/wallpapers/"
+    cp -rf "$tmp/usr/lib64/qt6/qml/org/skwd/wallpaper" \
+        "$HOME/.local/lib64/qml/org/skwd/"
+' _ "$SKWD_PLASMA_NVR"
+
+# Qt searches ~/.local/lib64/qml for QML modules only if it is on the import
+# path, and nothing puts it there by default, so plasmashell would fail to
+# resolve `import org.skwd.wallpaper` and draw an empty wallpaper with no
+# visible error. startplasma sources every file in this directory at session
+# start, which is why the installer tells you to log out rather than start the
+# unit by hand. Harmless if some other package already exports the same path;
+# a duplicate entry costs nothing.
+info "Putting ~/.local/lib64/qml on the session QML import path"
+mkdir -p "$HOME/.config/plasma-workspace/env"
+cat > "$HOME/.config/plasma-workspace/env/skwd-wall-v2-kit.sh" <<'ENVSH'
+# Written by skwd-wall-v2-kit: lets plasmashell find the Skwd Paper wallpaper
+# plugin's QML module in ~/.local/lib64/qml. Takes effect at the next login.
+export QML2_IMPORT_PATH="${HOME}/.local/lib64/qml${QML2_IMPORT_PATH:+:$QML2_IMPORT_PATH}"
+export QML_IMPORT_PATH="${HOME}/.local/lib64/qml${QML_IMPORT_PATH:+:$QML_IMPORT_PATH}"
+ENVSH
+chmod 644 "$HOME/.config/plasma-workspace/env/skwd-wall-v2-kit.sh"
 
 cat > "$HOME/.local/bin/skwd-paper-v2" <<'WRAP'
 #!/bin/sh
@@ -250,10 +311,13 @@ info "Done."
 cat <<EOF
 
 Next steps:
-  1. Log out and back in (this exercises the same graphical-session.target
-     path the unit runs on - don't just 'systemctl --user start' it).
+  1. Log out and back in. This is required, not a suggestion: it exercises
+     the same graphical-session.target path the unit runs on, and it is when
+     Plasma picks up the QML import path the wallpaper plugin needs.
   2. Drop some wallpapers in ~/Pictures/Wallpapers, then open the
      'skwd-wall v2' picker from your app launcher to browse and apply one.
+     If the desktop doesn't change, set the wallpaper type to 'Skwd Paper'
+     once in Desktop settings (right-click the desktop).
   3. Run:  skwd-theme current
            skwd-theme validate
 

@@ -32,6 +32,12 @@ ForegroundNormal={{colors.on_surface.default.red}},{{colors.on_surface.default.g
 ForegroundPositive={{colors.tertiary.default.red}},{{colors.tertiary.default.green}},{{colors.tertiary.default.blue}}
 ForegroundVisited={{colors.tertiary.default.red}},{{colors.tertiary.default.green}},{{colors.tertiary.default.blue}}
 
+# Upstream's template reads the .dark variant of each colour here, on the
+# theory that Complementary is the inverted palette. With theme.engine
+# "native" that is a no-op, since the engine emits identical light/default/
+# dark values, so this uses .default to keep the file readable. Switching
+# engine to matugen, which does produce different variants, is the case where
+# these should go back to .dark.
 [Colors:Complementary]
 BackgroundAlternate={{colors.surface.default.red}},{{colors.surface.default.green}},{{colors.surface.default.blue}}
 BackgroundNormal={{colors.surface.default.red}},{{colors.surface.default.green}},{{colors.surface.default.blue}}
@@ -74,6 +80,15 @@ ForegroundNormal={{colors.on_surface.default.red}},{{colors.on_surface.default.g
 ForegroundPositive={{colors.tertiary.default.red}},{{colors.tertiary.default.green}},{{colors.tertiary.default.blue}}
 ForegroundVisited={{colors.tertiary.default.red}},{{colors.tertiary.default.green}},{{colors.tertiary.default.blue}}
 
+# Every foreground role here is on_primary_container, including the ones that
+# normally carry meaning of their own. Upstream keeps error for
+# ForegroundNegative, which is the more correct scheme but not a colour the
+# generator can promise is readable on a wallpaper-derived primary_container:
+# both come from the same image, and nothing constrains their contrast. A
+# selected row with unreadable error text is worse than one where error text
+# is merely not red, so the whole group is pinned to the one colour the
+# palette does guarantee against this background. Same reasoning in Tooltip
+# below, against inverse_surface.
 [Colors:Selection]
 BackgroundAlternate={{colors.primary_container.default.red}},{{colors.primary_container.default.green}},{{colors.primary_container.default.blue}}
 BackgroundNormal={{colors.primary_container.default.red}},{{colors.primary_container.default.green}},{{colors.primary_container.default.blue}}

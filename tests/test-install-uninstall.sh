@@ -27,6 +27,26 @@ assert_file "$HOME/.local/bin/skwd-paper-v2"
 assert_file "$HOME/.local/libexec/skwd-wall-still"
 assert_file "$HOME/.local/libexec/skwd-wall-vk"
 assert_file "$HOME/.config/systemd/user/skwd-wall-v2.service"
+# Plasma draws the background itself, so without the wallpaper plugin on the
+# host nothing the daemon does reaches the screen. Both halves, plus the env
+# script that puts the QML module on Plasma's import path.
+assert_file "$HOME/.local/share/plasma/wallpapers/org.skwd.wall.plasma/metadata.json"
+assert_file "$HOME/.local/lib64/qml/org/skwd/wallpaper/libskwdwallpaperplugin.so"
+assert_file "$HOME/.config/plasma-workspace/env/skwd-wall-v2-kit.sh"
+ENTER_LOG="$HOME/.cache/skwd-test-distrobox/enter.log"
+assert_file "$ENTER_LOG"
+grep -q '/usr/share/plasma/wallpapers/org.skwd.wall.plasma' "$ENTER_LOG" \
+    || fail "install.sh never asked the container for the Plasma wallpaper package"
+grep -q '/usr/lib64/qt6/qml/org/skwd/wallpaper' "$ENTER_LOG" \
+    || fail "install.sh never asked the container for the wallpaper plugin's QML module"
+grep -q 'skwd-paper-plasma' "$ENTER_LOG" \
+    || fail "install.sh never fetched skwd-paper-plasma from the container"
+# Fetched and unpacked, never installed. Its requires reach Qt6 Quick, EGL and
+# a compiler, so `dnf install` resolves to 408 packages in the container, none
+# of which can run: plasmashell loads the plugin, on the host.
+if grep -E 'dnf .*install' "$ENTER_LOG" | grep -q 'skwd-paper-plasma'; then
+    fail "install.sh dnf-installs skwd-paper-plasma into the container instead of unpacking it"
+fi
 # Without this the picker GUI stays invisible to the host app launcher, which
 # is exactly where install.sh and the README tell you to look for it.
 assert_file "$HOME/.local/share/applications/skwd-wall-v2-kit.desktop"
@@ -71,6 +91,9 @@ for f in skwd-wall-v2-session skwd-plasma-scheme skwd-plasma-surfaces skwd-theme
     assert_missing "$HOME/.local/bin/$f"
 done
 assert_missing "$HOME/.local/lib/skwd-wall-v2"
+assert_missing "$HOME/.local/share/plasma/wallpapers/org.skwd.wall.plasma"
+assert_missing "$HOME/.local/lib64/qml/org/skwd/wallpaper"
+assert_missing "$HOME/.config/plasma-workspace/env/skwd-wall-v2-kit.sh"
 assert_missing "$HOME/.config/systemd/user/skwd-wall-v2.service"
 assert_missing "$HOME/.local/share/applications/skwd-wall-v2-kit.desktop"
 assert_missing "$HOME/.config/skwd-wall-v2"
